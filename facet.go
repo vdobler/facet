@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"strconv"
 
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/vg"
@@ -246,12 +247,40 @@ func (f *Facet) Range( /* Todo */ ) error {
 	return nil // TODO: fail for illegal log scales, etc.
 }
 
+func (f *Facet) needGuides() bool {
+	return f.Scales[ColorScale].HasData() ||
+		f.Scales[FillScale].HasData() ||
+		f.Scales[StyleScale].HasData() ||
+		f.Scales[SymbolScale].HasData()
+}
+
+// Draw renders f to c.
 func (f *Facet) Draw(c draw.Canvas) error {
 	style := DefaultFacetStyle(12)
 
 	if f.Title != "" {
 		c.FillText(style.Title, vg.Point{X: c.Center().X, Y: c.Max.Y}, f.Title)
 		c.Max.Y -= style.TitleHeight
+	}
+
+	if f.needGuides() {
+		guideWidth := style.Guide.Size * 3
+		gc := c
+		gc.Min.X = gc.Max.X - guideWidth
+
+		// TODO: Combine and Layout the relevant guides
+		if f.Scales[FillScale].HasData() {
+			drawColorScale(gc, f.Scales[FillScale], style)
+			gc.Max.Y += 100
+		}
+		if f.Scales[ColorScale].HasData() {
+			drawColorScale(gc, f.Scales[ColorScale], style)
+			gc.Max.Y += 100
+		}
+
+		f.drawDiscreteScales(gc, style)
+
+		c.Max.X -= guideWidth + style.Guide.Pad
 	}
 
 	var h1, h2, h3, h4 vg.Length
@@ -418,6 +447,138 @@ func (f *Facet) Draw(c draw.Canvas) error {
 	return nil
 }
 
+// combineGuides returns which combinations of guides need to be drawn and
+// how they should be combined.
+// TODO: replace with handroled code.
+func (f *Facet) combineGuides() [][]int {
+	combinations := [][]int{}
+	for j := FillScale; j < numScales; j++ {
+		if !f.Scales[j].HasData() {
+			continue
+		}
+		s := f.Scales[j]
+		combined := false
+		for i, combi := range combinations {
+			combinable := true
+			for k := range combi {
+				r := f.Scales[combi[k]]
+				// TODO: can combine Fill and Color only if same color map is used.
+				if s.Min != r.Min || s.Max != r.Max ||
+					s.ScaleType != r.ScaleType {
+					combinable = false
+					break
+				}
+			}
+			if combinable {
+				combinations[i] = append(combinations[i], j)
+				combined = true
+			}
+		}
+		if !combined {
+			combinations = append(combinations, []int{j})
+		}
+	}
+	return combinations
+}
+
+func (f *Facet) drawDiscreteScales(c draw.Canvas, style FacetStyle) {
+}
+
+// Draw continuous color scales.
+func drawColorScale(c draw.Canvas, scale *Scale, style FacetStyle) {
+	if scale.Title != "" {
+		p := vg.Point{
+			X: c.Min.X + 0.5*style.Guide.Size,
+			Y: c.Max.Y,
+		}
+		c.FillText(style.Guide.Title, p, scale.Title)
+		c.Max.Y -= 2 * style.Guide.Title.Font.Size
+	}
+
+	if scale.ScaleType == Discrete {
+		drawDiscreteColorGuide(c, scale, style)
+	} else {
+		drawContinuousColorGuide(c, scale, style)
+	}
+}
+
+func drawDiscreteColorGuide(c draw.Canvas, scale *Scale, style FacetStyle) {
+	a, e := int(scale.Data.Min), int(scale.Data.Max)
+	fmt.Println("***", a, e)
+	n := e - a + 1
+	size, pad := style.Guide.Size, vg.Length(3)
+	r := vg.Rectangle{
+		Min: vg.Point{c.Min.X, c.Max.Y - size},
+		Max: vg.Point{c.Min.X + size, c.Max.Y},
+	}
+
+	labelSty := style.YAxis.Tick.Label
+	labelSty.XAlign = draw.XLeft
+
+	pal := scale.ColorMap.Palette(n).Colors()
+	for level := e; level >= a; level-- {
+		fmt.Println("  *** ", level)
+		col := pal[level-a]
+		c.SetColor(col)
+		c.Fill(r.Path())
+		c.SetColor(color.Black)
+		c.SetLineWidth(vg.Length(0.3))
+		c.Stroke(r.Path())
+		c.FillText(labelSty, vg.Point{r.Max.X + pad, (r.Min.Y + r.Max.Y) / 2}, strconv.Itoa(level))
+
+		r.Min.Y -= size + pad
+		r.Max.Y -= size + pad
+	}
+}
+
+func drawContinuousColorGuide(c draw.Canvas, scale *Scale, style FacetStyle) {
+	width := style.Guide.Size
+	height := 5 * width
+	scale2Canvas := func(x float64) vg.Length {
+		t := scale.DataToUnit(x)
+		return c.Max.Y - height + height*vg.Length(t)
+	}
+	rect := vg.Rectangle{
+		Min: vg.Point{c.Min.X, scale2Canvas(scale.Min)},
+		Max: vg.Point{c.Min.X + width, scale2Canvas(scale.Max)},
+	}
+	step := height / 101
+	r := rect
+	for i := 0; i <= 100; i++ {
+		col, err := scale.ColorMap.At(float64(i) / 100)
+		if err != nil {
+			panic(fmt.Sprintf("%d %s", i, err))
+		}
+		c.SetColor(col)
+		c.Fill(r.Path())
+		r.Min.Y += step
+	}
+	c.SetColor(color.Black)
+	c.SetLineWidth(vg.Length(0.3))
+	c.Stroke(rect.Path())
+	ticks := plot.DefaultTicks{}.Ticks(scale.Min, scale.Max)
+	// TODO: Do not use YAxis style.
+	for _, tick := range ticks {
+		sty := style.YAxis.Tick.Major
+		length := style.YAxis.Tick.Length
+		if tick.IsMinor() {
+			sty = style.YAxis.Tick.Minor
+			length /= 2
+		}
+		x := rect.Max.X
+		y := scale2Canvas(tick.Value)
+		fmt.Println(length, x, y)
+		c.StrokeLine2(sty, x, y, x+length, y)
+		if tick.IsMinor() {
+			continue
+		}
+		tsty := style.YAxis.Tick.Label
+		tsty.XAlign = draw.XLeft
+		c.FillText(tsty,
+			vg.Point{x + length, y}, tick.Label)
+	}
+}
+
 // DefaultFacetStyle returns a FacetStyle which mimics the appearance of ggplot2.
 // The baseFontSize is the font size for axis titles and strip labels, the title
 // is a bit bigger, tick labels a bit smaller.
@@ -495,10 +656,17 @@ func DefaultFacetStyle(baseFontSize vg.Length) FacetStyle {
 	fs.YAxis.Tick.Label.Color = color.Black
 	fs.YAxis.Tick.Label.Font = tickFont
 	fs.YAxis.Tick.Label.XAlign = draw.XRight
-	fs.YAxis.Tick.Label.YAlign = draw.YCenter
-	fs.YAxis.Tick.Major.Color = nil
-	fs.YAxis.Tick.Major.Width = 0
+	fs.YAxis.Tick.Label.YAlign = -0.3 // draw.YCenter
+	fs.YAxis.Tick.Major.Color = color.Gray16{0x1111}
+	fs.YAxis.Tick.Major.Width = vg.Length(1)
 	fs.YAxis.Tick.Length = vg.Length(5)
+
+	fs.Guide.Title.Color = color.Black
+	fs.Guide.Title.Font = baseFont
+	fs.Guide.Title.XAlign = draw.XCenter
+	fs.Guide.Title.YAlign = draw.YTop
+	fs.Guide.Size = scale(baseFontSize, 2)
+	fs.Guide.Pad = scale(baseFontSize, 1)
 
 	return fs
 }
@@ -550,5 +718,11 @@ type FacetStyle struct {
 			Minor  draw.LineStyle
 			Length vg.Length
 		}
+	}
+
+	Guide struct {
+		Title draw.TextStyle
+		Size  vg.Length
+		Pad   vg.Length
 	}
 }

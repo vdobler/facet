@@ -26,6 +26,8 @@ func main() {
 	f.ColLabels[2] = "C 2"
 
 	f.Scales[facet.FillScale].ColorMap = moreland.Kindlmann()
+	f.Scales[facet.FillScale].Title = "Fill"
+	f.Scales[facet.FillScale].ScaleType = facet.Linear // facet.Discrete
 
 	xyuv := []geom.XYUV{
 		{10, 10, 20, 15},

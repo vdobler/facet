@@ -29,6 +29,21 @@ func main() {
 	f.Scales[facet.FillScale].Title = "Fill"
 	f.Scales[facet.FillScale].ScaleType = facet.Linear // facet.Discrete
 
+	rainbow := &facet.Rainbow{Saturation: 0.9, Value: 0.9}
+	rainbow.SetAlpha(1)
+	rainbow.HueGap = 1.0 / 6.0
+	rainbow.StartHue = 2.0 / 6.0
+	f.Scales[facet.ColorScale].Title = "Rnbw"
+	f.Scales[facet.ColorScale].ScaleType = facet.Linear
+	f.Scales[facet.ColorScale].ColorMap = rainbow
+
+	f.Scales[facet.FillScale].Title = "Heat"
+	f.Scales[facet.FillScale].ScaleType = facet.Discrete
+
+	f.Scales[facet.SymbolScale].Title = "User"
+	f.Scales[facet.SymbolScale].ScaleType = facet.Discrete
+
+	// Rectangles
 	xyuv := []geom.XYUV{
 		{10, 10, 20, 15},
 		{5, 0, 15, 8},
@@ -38,6 +53,7 @@ func main() {
 		geom.Rectangle{XYUV: xyuv},
 	}
 
+	// Bubble plot
 	xyz := plotter.XYZs{
 		{3.0, 2.0, -4},
 		{4.0, 1.0, -2},
@@ -59,9 +75,48 @@ func main() {
 		},
 	}
 
-	img := vgimg.New(600, 480)
+	// Lines plot
+	exp1 := plotter.XYs{
+		{2, 10},
+		{3, 12},
+		{4, 13},
+		{5, 18},
+		{7, 17},
+	}
+	exp2 := plotter.XYs{
+		{3, -2},
+		{4, 0},
+		{5, 3},
+		{6, 6},
+		{7, 6.5},
+		{7.5, 9},
+	}
+	exp3 := plotter.XYs{
+		{2, 15},
+		{4, 10},
+		{6, 7},
+		{8, 0},
+	}
+	f.Panels[0][1].Geoms = []facet.Geom{
+		geom.Lines{
+			XY: []plotter.XYer{exp1, exp2, exp3},
+			Color: func(i int) float64 {
+				return float64(i)
+			},
+			Style: func(i int) float64 {
+				return float64(i)
+			},
+			Size: func(i int) float64 {
+				return float64(i + 2)
+			},
+		},
+	}
+
+	img := vgimg.New(600, 600)
 	dc := draw.New(img)
 	f.Range()
+	f.Scales[facet.SymbolScale].Data.Min = 0
+	f.Scales[facet.SymbolScale].Data.Max = 3
 	f.Draw(dc)
 
 	w, err := os.Create("testdata/facet.png")

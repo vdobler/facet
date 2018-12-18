@@ -2,10 +2,13 @@
 package geom
 
 import (
+	"fmt"
 	"image/color"
+	"math"
 
 	"github.com/vdobler/facet"
 	"gonum.org/v1/plot/plotter"
+	"gonum.org/v1/plot/plotutil"
 	"gonum.org/v1/plot/vg"
 	"gonum.org/v1/plot/vg/draw"
 )
@@ -66,8 +69,9 @@ type Point struct {
 	Fill StyleFunc
 	Size StyleFunc
 
-	Color  color.Color
-	Radius vg.Length
+	Default draw.GlyphStyle
+	Color   color.Color
+	Radius  vg.Length
 }
 
 func (p Point) Draw(panel *facet.Panel) {
@@ -129,6 +133,87 @@ func (p Point) AllDataRanges() facet.DataRanges {
 		if p.Size != nil {
 			x := p.Size(i)
 			dr[facet.SizeScale].Update(x)
+		}
+	}
+
+	return dr
+}
+
+// ----------------------------------------------------------------------------
+// Lines
+
+// Line draws
+type Lines struct {
+	XY    []plotter.XYer
+	Color StyleFunc
+	Style StyleFunc
+	Size  StyleFunc
+
+	Default draw.LineStyle
+}
+
+func (l Lines) Draw(panel *facet.Panel) {
+	dye := l.Default.Color
+	if dye == nil {
+		dye = color.RGBA{0, 0, 0x22, 0xff}
+	}
+	colorScale := panel.Scales[facet.ColorScale]
+
+	width := l.Default.Width
+	if width == 0 {
+		width = vg.Length(2)
+	}
+
+	dashes := l.Default.Dashes
+
+	canvas := panel.Canvas
+	for g, xy := range l.XY {
+		fmt.Println("Lines: drawing group", g)
+		ps := make([]vg.Point, xy.Len())
+		for i := 0; i < xy.Len(); i++ {
+			x, y := xy.XY(i)
+			ps[i] = panel.Map(x, y)
+		}
+
+		if l.Color != nil {
+			val := l.Color(g)
+			dye = colorScale.MapColor(val)
+		}
+		if l.Style != nil {
+			val := l.Style(g)
+			dashes = plotutil.Dashes(int(math.Round(val)))
+		}
+		if l.Size != nil {
+			val := l.Size(g)
+			width = vg.Length(val)
+		}
+
+		sty := draw.LineStyle{
+			Color:  dye,
+			Width:  width,
+			Dashes: dashes,
+		}
+
+		canvas.StrokeLines(sty, canvas.ClipLinesXY(ps)...)
+	}
+}
+
+func (l Lines) AllDataRanges() facet.DataRanges {
+	dr := facet.NewDataRanges()
+	for g, xy := range l.XY {
+		for i := 0; i < xy.Len(); i++ {
+			x, y := xy.XY(i)
+			dr[facet.XScale].Update(x)
+			dr[facet.YScale].Update(y)
+
+			if l.Color != nil {
+				x := l.Color(g)
+				dr[facet.ColorScale].Update(x)
+			}
+			if l.Style != nil {
+				x := l.Style(g)
+				dr[facet.StyleScale].Update(x)
+			}
 		}
 	}
 

@@ -2,6 +2,7 @@ package facet
 
 import (
 	"fmt"
+	"image/color"
 	"math"
 	"time"
 
@@ -101,6 +102,22 @@ func (s *Scale) String() string {
 	}
 	return fmt.Sprintf("Range=[%.2f:%.2f] Data=[%.2f:%.2f] %s %q",
 		s.Min, s.Max, s.Data.Min, s.Data.Max, s.ScaleType, s.Title)
+}
+
+func (s *Scale) MapColor(x float64) color.Color {
+	if s.DataToUnit == nil || s.ColorMap == nil {
+		return color.RGBA{0, 0, 0, 0} // transparent
+	}
+
+	t := s.DataToUnit(x)
+	if t < 0 {
+		t = 0
+	} else if t > 1 {
+		t = 1
+	}
+
+	col, _ := s.ColorMap.At(t)
+	return col
 }
 
 func have(x float64) bool {
@@ -220,12 +237,25 @@ func unsetInterval() Interval {
 
 // Update expands i to include x.
 func (i *Interval) Update(x float64) {
+	if math.IsNaN(x) {
+		return
+	}
 	if !(i.Min < x) {
 		i.Min = x
 	}
 	if !(i.Max > x) {
 		i.Max = x
 	}
+}
+
+func (i *Interval) Equal(j Interval) bool {
+	if math.IsNaN(i.Min) {
+		return math.IsNaN(j.Min)
+	}
+	if math.IsNaN(i.Max) {
+		return math.IsNaN(j.Max)
+	}
+	return i.Min == j.Min && i.Max == j.Max
 }
 
 // ----------------------------------------------------------------------------

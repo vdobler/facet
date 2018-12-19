@@ -25,10 +25,6 @@ func main() {
 	f.ColLabels[1] = "(C) 1 j g"
 	f.ColLabels[2] = "C 2"
 
-	f.Scales[facet.FillScale].ColorMap = moreland.Kindlmann()
-	f.Scales[facet.FillScale].Title = "Fill"
-	f.Scales[facet.FillScale].ScaleType = facet.Linear // facet.Discrete
-
 	rainbow := &facet.Rainbow{Saturation: 0.9, Value: 0.9}
 	rainbow.SetAlpha(1)
 	rainbow.HueGap = 1.0 / 6.0
@@ -38,7 +34,8 @@ func main() {
 	f.Scales[facet.ColorScale].ColorMap = rainbow
 
 	f.Scales[facet.FillScale].Title = "Heat"
-	f.Scales[facet.FillScale].ScaleType = facet.Discrete
+	f.Scales[facet.FillScale].ScaleType = facet.Linear
+	f.Scales[facet.FillScale].ColorMap = moreland.Kindlmann()
 
 	f.Scales[facet.SymbolScale].Title = "User"
 	f.Scales[facet.SymbolScale].ScaleType = facet.Discrete
@@ -115,8 +112,6 @@ func main() {
 	img := vgimg.New(600, 600)
 	dc := draw.New(img)
 	f.Range()
-	f.Scales[facet.SymbolScale].Data.Min = 0
-	f.Scales[facet.SymbolScale].Data.Max = 3
 	f.Draw(dc)
 
 	w, err := os.Create("testdata/facet.png")

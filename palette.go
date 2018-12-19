@@ -7,6 +7,15 @@ import (
 	"gonum.org/v1/plot/palette"
 )
 
+var DefaultColorMap = &Rainbow{
+	Value:      0.9,
+	Saturation: 0.9,
+	HueGap:     1.0 / 6.0,
+	min:        0,
+	max:        1,
+	alpha:      1,
+}
+
 // Rainbow is a equaly spaced hue rainbow color map.
 type Rainbow struct {
 	Value      float64 // Value of the generated colors

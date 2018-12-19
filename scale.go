@@ -6,8 +6,9 @@ import (
 	"math"
 	"time"
 
+	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/palette"
-	"gonum.org/v1/plot/palette/moreland"
+	"gonum.org/v1/plot/vg"
 )
 
 // ----------------------------------------------------------------------------
@@ -30,7 +31,13 @@ type Scale struct {
 	// ScaleType determines the fundamental nature of the scale.
 	ScaleType ScaleType
 
-	// Values contains the nominal values
+	// Autoscaling can be used to control autoscaling of this scale.
+	Autoscaling
+
+	// Ticker is responsible for generating the ticks.
+	Ticker plot.Ticker
+
+	// Values contains the nominal values. TODO: replace by Ticker
 	Values []string
 
 	// TimeFmt is used to format date/time tics.
@@ -38,16 +45,16 @@ type Scale struct {
 	// T0 is the reference time and timezone
 	T0 time.Time
 
-	// ColorMap is used if this scale is a color scale (Fill- or ColorScale).
-	ColorMap palette.ColorMap
-
-	// Autoscaling can be used to control autoscaling of this scale.
-	Autoscaling
-
 	// DataToUnit and UnitToData convert the data range to [0,1] and back.
 	// These functions are set up by Facet.Range. TODO: is this clever?
 	DataToUnit func(d float64) float64
 	UnitToData func(u float64) float64
+
+	// ColorMap is used if this scale is a color scale (Fill- or ColorScale).
+	ColorMap palette.ColorMap
+
+	// SizeMap maps data values to a visual length.
+	SizeMap func(x float64) vg.Length
 }
 
 // NewScale returns a new linear scale which autoscales to the actual data.
@@ -208,16 +215,6 @@ func (s *Scale) buildConversionFuncs() {
 	default:
 		panic(s.ScaleType)
 	}
-
-}
-
-// Set up this scale as a color scale
-func (s *Scale) setupColor() {
-	if s.ColorMap == nil {
-		s.ColorMap = moreland.BlackBody()
-	}
-	s.ColorMap.SetMin(0)
-	s.ColorMap.SetMax(1)
 
 }
 

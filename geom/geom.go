@@ -65,24 +65,29 @@ func (rp Rectangle) AllDataRanges() facet.DataRanges {
 
 // Point draws circular points.
 type Point struct {
-	XY   plotter.XYer
-	Fill StyleFunc
-	Size StyleFunc
+	XY     plotter.XYer
+	Color  StyleFunc
+	Size   StyleFunc
+	Symbol StyleFunc
 
 	Default draw.GlyphStyle
-	Color   color.Color
-	Radius  vg.Length
 }
 
 func (p Point) Draw(panel *facet.Panel) {
-	fill := p.Color
-	if fill == nil {
-		fill = color.RGBA{0x22, 0x22, 0x22, 0xff}
+	dye := p.Default.Color
+	if dye == nil {
+		dye = color.RGBA{0x22, 0x22, 0x22, 0xff}
 	}
-	fillScale := panel.Scales[facet.FillScale]
-	size := p.Radius
+	colorScale := panel.Scales[facet.ColorScale]
+
+	size := p.Default.Radius
 	if size == 0 {
-		size = vg.Length(5)
+		size = vg.Length(4)
+	}
+
+	symbol := p.Default.Shape
+	if symbol == nil {
+		symbol = draw.GlyphDrawer(draw.CircleGlyph{})
 	}
 
 	for i := 0; i < p.XY.Len(); i++ {
@@ -91,19 +96,22 @@ func (p Point) Draw(panel *facet.Panel) {
 
 		if p.Size != nil {
 			val := p.Size(i)
-			u := panel.Scales[facet.SizeScale].DataToUnit(val)
-			size = vg.Length(u*10 + 1)
+			size = panel.Scales[facet.SizeScale].SizeMap(val)
 		}
 
-		if p.Fill != nil {
-			val := p.Fill(i)
-			if !fillScale.InRange(val) {
-				// TODO
-				fill = color.RGBA{0x22, 0x22, 0x22, 0x44}
+		if p.Symbol != nil {
+			symbol = plotutil.Shape(int(math.Round(p.Symbol(i))))
+		}
+
+		if p.Color != nil {
+			val := p.Color(i)
+			if !colorScale.InRange(val) {
+				fmt.Println("==> ", colorScale.Min, val, colorScale.Max)
+				dye = color.RGBA{0x22, 0x22, 0x22, 0x44}
 			} else {
-				u := fillScale.DataToUnit(val)
+				u := colorScale.DataToUnit(val)
 				var err error
-				fill, err = fillScale.ColorMap.At(u)
+				dye, err = colorScale.ColorMap.At(u)
 				if err != nil {
 					panic(err)
 				}
@@ -111,9 +119,9 @@ func (p Point) Draw(panel *facet.Panel) {
 		}
 
 		sty := draw.GlyphStyle{
-			Color:  fill,
+			Color:  dye,
 			Radius: size,
-			Shape:  draw.CircleGlyph{},
+			Shape:  symbol,
 		}
 		panel.Canvas.DrawGlyph(sty, center)
 	}
@@ -122,17 +130,24 @@ func (p Point) Draw(panel *facet.Panel) {
 func (p Point) AllDataRanges() facet.DataRanges {
 	dr := facet.NewDataRanges()
 	for i := 0; i < p.XY.Len(); i++ {
+		fmt.Println("### Size", p.Size)
+
 		x, y := p.XY.XY(i)
 		dr[facet.XScale].Update(x)
 		dr[facet.YScale].Update(y)
 
-		if p.Fill != nil {
-			x := p.Fill(i)
-			dr[facet.FillScale].Update(x)
+		if p.Color != nil {
+			x := p.Color(i)
+			dr[facet.ColorScale].Update(x)
 		}
 		if p.Size != nil {
 			x := p.Size(i)
+			fmt.Println("### Update size", x)
 			dr[facet.SizeScale].Update(x)
+		}
+		if p.Symbol != nil {
+			x := p.Symbol(i)
+			dr[facet.SymbolScale].Update(x)
 		}
 	}
 
@@ -161,14 +176,13 @@ func (l Lines) Draw(panel *facet.Panel) {
 
 	width := l.Default.Width
 	if width == 0 {
-		width = vg.Length(2)
+		width = vg.Length(1)
 	}
 
 	dashes := l.Default.Dashes
 
 	canvas := panel.Canvas
 	for g, xy := range l.XY {
-		fmt.Println("Lines: drawing group", g)
 		ps := make([]vg.Point, xy.Len())
 		for i := 0; i < xy.Len(); i++ {
 			x, y := xy.XY(i)
@@ -213,6 +227,79 @@ func (l Lines) AllDataRanges() facet.DataRanges {
 			if l.Style != nil {
 				x := l.Style(g)
 				dr[facet.StyleScale].Update(x)
+			}
+		}
+	}
+
+	return dr
+}
+
+// ----------------------------------------------------------------------------
+// LinesPoints
+
+// LinesPoints draws Points connected by lines
+type LinesPoints struct {
+	XY    []plotter.XYer
+	Color StyleFunc
+	Style StyleFunc
+
+	Size   StyleFunc // of Points
+	Symbol StyleFunc // of Points
+
+	LineDefault  draw.LineStyle
+	PointDefault draw.GlyphStyle
+}
+
+func (lp LinesPoints) Draw(panel *facet.Panel) {
+	lines := Lines{
+		XY:      lp.XY,
+		Default: lp.LineDefault,
+	}
+	if lp.Color != nil {
+		lines.Color = func(i int) float64 { return lp.Color(i) }
+	}
+	if lp.Style != nil {
+		lines.Style = func(i int) float64 { return lp.Style(i) }
+	}
+	lines.Draw(panel)
+
+	for g, xy := range lp.XY {
+		points := Point{
+			XY:      xy,
+			Default: lp.PointDefault,
+		}
+		if lp.Color != nil {
+			points.Color = func(i int) float64 { return lp.Color(g) }
+		}
+		if lp.Symbol != nil {
+			points.Symbol = func(i int) float64 { return lp.Symbol(g) }
+		}
+		if lp.Size != nil {
+			points.Size = func(i int) float64 { return lp.Size(g) }
+		}
+		points.Draw(panel)
+	}
+}
+
+func (lp LinesPoints) AllDataRanges() facet.DataRanges {
+	dr := facet.NewDataRanges()
+	for g, xy := range lp.XY {
+		for i := 0; i < xy.Len(); i++ {
+			x, y := xy.XY(i)
+			dr[facet.XScale].Update(x)
+			dr[facet.YScale].Update(y)
+
+			if lp.Color != nil {
+				dr[facet.ColorScale].Update(lp.Color(g))
+			}
+			if lp.Style != nil {
+				dr[facet.StyleScale].Update(lp.Style(g))
+			}
+			if lp.Size != nil {
+				dr[facet.SizeScale].Update(lp.Size(g))
+			}
+			if lp.Symbol != nil {
+				dr[facet.SymbolScale].Update(lp.Symbol(g))
 			}
 		}
 	}

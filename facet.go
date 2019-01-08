@@ -634,13 +634,44 @@ func (f *Facet) titleFor(scales []int) string {
 	return ""
 }
 
+// Finding a suitable ticker is complicated: If one of the scales
+// is a Symbol or Style scale only integer values are allowed and
+// all used values should be ticked.
+// TODO: Maybe Style and Symbol must be different kind of scales
+// as these cannot be anything than discrete as anything else cannont
+// be mapped to an aesthetics.
 func (f *Facet) tickerFor(scales []int) plot.Ticker {
 	for _, s := range scales {
-		if ticker := f.Scales[s].Ticker; ticker != nil {
-			return ticker
+		if f.Scales[s].Ticker != nil {
+			return f.Scales[s].Ticker
 		}
 	}
+	if containsInt(scales, StyleScale) || containsInt(scales, SymbolScale) {
+		return DiscreteTicks{}
+
+	}
+
 	return plot.DefaultTicks{}
+}
+
+type DiscreteTicks struct{}
+
+var _ plot.Ticker = DiscreteTicks{}
+
+// Ticks makes DiscreteTicks implements plot.Ticker.
+func (DiscreteTicks) Ticks(min, max float64) []plot.Tick {
+	min, max = math.Ceil(min), math.Floor(max)
+
+	ticks := []plot.Tick{}
+	for ; min <= max; min++ {
+		fmt.Println("XXXX", min, int(min))
+		ticks = append(ticks, plot.Tick{
+			Value: min,
+			Label: fmt.Sprintf("%d", int(min)),
+		})
+		fmt.Println("  ", fmt.Sprintf("%d", int(min)))
+	}
+	return ticks
 }
 
 // colorMapFor looks for a color map defined on one of the given scales.
@@ -696,7 +727,6 @@ func (f *Facet) drawDiscreteGuides(c draw.Canvas, scales []int) vg.Length {
 	showColor := containsInt(scales, ColorScale)
 	showStyle := containsInt(scales, StyleScale)
 	showSymbol := containsInt(scales, SymbolScale)
-	fmt.Println(showFill, showSize, showColor, showStyle, showSymbol)
 	scale := f.Scales[scales[0]] // all have same range, so take the first
 	ticker := f.tickerFor(scales)
 	ticks := ticker.Ticks(scale.Min, scale.Max)
@@ -722,6 +752,7 @@ func (f *Facet) drawDiscreteGuides(c draw.Canvas, scales []int) vg.Length {
 
 	for i, tick := range ticks {
 		if tick.Label == "" {
+			debug.VV("skiping tick at", tick.Value)
 			continue
 		}
 		debug.VV("tick", tick.Label, "@", tick.Value)

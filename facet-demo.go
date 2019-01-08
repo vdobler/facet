@@ -65,7 +65,7 @@ func main() {
 		geom.Point{
 			XY:   plotter.XYValues{xyz},
 			Size: func(i int) float64 { return xyz[i].Z },
-			Fill: func(i int) float64 {
+			Color: func(i int) float64 {
 				k := (i + 4) % len(xyz)
 				return 7 + xyz[k].Z
 			},

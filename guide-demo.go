@@ -71,8 +71,8 @@ func linespoints(size, color, symbol, style bool) facet.Geom {
 	return lp
 }
 
-func sample(size, color, symbol, style bool) *facet.Facet {
-	f := facet.NewFacet(1, 1, true, true)
+func sample(size, color, symbol, style bool) *facet.Plot {
+	f := facet.NewSimplePlot()
 
 	features := []string{}
 	if size {

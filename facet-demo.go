@@ -14,30 +14,33 @@ import (
 )
 
 func main() {
-	f := facet.NewFacet(2, 3, true, true)
+	f := facet.NewPlot(2, 3, true, true)
 
 	f.Title = "Facet"
 	f.XScales[0].Title = "X-Axis"
 	f.YScales[0].Title = "Y-Axis"
-	f.RowLabels[0] = "(R) 0 j g"
-	f.RowLabels[1] = "R 1"
-	f.ColLabels[0] = "C 0"
-	f.ColLabels[1] = "(C) 1 j g"
-	f.ColLabels[2] = "C 2"
+	f.RowLabels[0] = "Row 0"
+	f.RowLabels[1] = "Row 1"
+	f.ColLabels[0] = "Col 0"
+	f.ColLabels[1] = "Col 1"
+	f.ColLabels[2] = "Col 2"
 
 	rainbow := &facet.Rainbow{Saturation: 0.9, Value: 0.9}
 	rainbow.SetAlpha(1)
 	rainbow.HueGap = 1.0 / 6.0
 	rainbow.StartHue = 2.0 / 6.0
-	f.Scales[facet.ColorScale].Title = "Rnbw"
+	f.Scales[facet.ColorScale].Title = "Color"
 	f.Scales[facet.ColorScale].ScaleType = facet.Linear
 	f.Scales[facet.ColorScale].ColorMap = rainbow
 
-	f.Scales[facet.FillScale].Title = "Heat"
+	f.Scales[facet.FillScale].Title = "Fill"
 	f.Scales[facet.FillScale].ScaleType = facet.Linear
 	f.Scales[facet.FillScale].ColorMap = moreland.Kindlmann()
 
-	f.Scales[facet.SymbolScale].Title = "User"
+	f.Scales[facet.SizeScale].Title = "Size"
+	f.Scales[facet.StyleScale].Title = "Style"
+
+	f.Scales[facet.SymbolScale].Title = "Symbol"
 	f.Scales[facet.SymbolScale].ScaleType = facet.Discrete
 
 	// Rectangles
@@ -53,11 +56,13 @@ func main() {
 	// Bubble plot
 	xyz := plotter.XYZs{
 		{3.0, 2.0, -4},
+		{3.5, 2.5, -3},
 		{4.0, 1.0, -2},
 		{4.8, 3.0, -3},
 		{5.2, 4.0, 0},
 		{6.5, 3.5, 2},
 		{7.0, 4.0, 1},
+		{7.2, 3.3, 1.5},
 		{7.5, 5.0, 2},
 		{8.0, 4.5, 3},
 	}
@@ -66,8 +71,7 @@ func main() {
 			XY:   plotter.XYValues{xyz},
 			Size: func(i int) float64 { return xyz[i].Z },
 			Color: func(i int) float64 {
-				k := (i + 4) % len(xyz)
-				return 7 + xyz[k].Z
+				return xyz[i].X + xyz[i].Y
 			},
 		},
 	}
@@ -109,7 +113,7 @@ func main() {
 		},
 	}
 
-	img := vgimg.New(600, 600)
+	img := vgimg.New(800, 600)
 	dc := draw.New(img)
 	f.Range()
 	f.Draw(dc)

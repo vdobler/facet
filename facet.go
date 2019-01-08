@@ -92,24 +92,49 @@ func (p *Panel) Map(x, y float64) vg.Point {
 }
 
 // ----------------------------------------------------------------------------
-// Facet
+// Plot
 
-// Facet describes a facetted plot.
-type Facet struct {
-	Title                string
-	Rows, Cols           int
-	Panels               [][]*Panel
+// Plot describes a facetted plot.
+type Plot struct {
+	// Title is the optional plot title.
+	Title string
+
+	// Rows and Cols are number of rows and columns in the faceted plot.
+	Rows, Cols int
+
+	// Panels is the matirx of plot panels: Panels[r][c] is the
+	// panel at row r and column c.
+	Panels [][]*Panel
+
+	// RowLabels and ColLabels contain the optional strip titles
+	// for the row and column strips.
 	RowLabels, ColLabels []string
-	XScales, YScales     []*Scale
-	Scales               [numScales]*Scale // Except X and Y
-	Style                FacetStyle
+
+	// XScales are the scales for the Col many x-axes. If the x scales
+	// are not free all x-axes will share the same scale.
+	XScales []*Scale
+
+	// YScales are the scales for the Row many y-axes. If the y scales
+	// are not free all y-axes will share the same scale.
+	YScales []*Scale
+
+	// Scales contains the rest of the scales like Color, Fill, Shape, etc.
+	Scales [numScales]*Scale // Except X and Y
+
+	// Style used during plotting. TODO: Keep here?
+	Style Style
 }
 
-// NewFacet creates a new faceted plot with row x col many panels.
+// NewSimple creates a new un-faceted plot, that is a plot with just one panel.
+func NewSimplePlot() *Plot {
+	return NewPlot(1, 1, false, false)
+}
+
+// NewPlot creates a new faceted plot with row x col many panels.
 // All columns share the same X-sclae and all rows share the same Y-scale
 // unless freeX or respectively freeY is specified.
-func NewFacet(rows, cols int, freeX, freeY bool) *Facet {
-	f := Facet{
+func NewPlot(rows, cols int, freeX, freeY bool) *Plot {
+	f := Plot{
 		Rows:      rows,
 		Cols:      cols,
 		Panels:    make([][]*Panel, rows),
@@ -160,7 +185,7 @@ func NewFacet(rows, cols int, freeX, freeY bool) *Facet {
 }
 
 // Learn all data ranges for all scales for all plotters in all panels in f.
-func (f *Facet) learnDataRange() {
+func (f *Plot) learnDataRange() {
 	for row := 0; row < f.Rows; row++ {
 		f.Scales[YScale] = f.YScales[row]
 		for col := 0; col < f.Cols; col++ {
@@ -183,7 +208,7 @@ func (f *Facet) learnDataRange() {
 	}
 }
 
-func (f *Facet) applyToScales(m func(*Scale)) {
+func (f *Plot) applyToScales(m func(*Scale)) {
 	done := make(map[*Scale]bool)
 	for _, s := range f.XScales {
 		if done[s] {
@@ -208,7 +233,7 @@ func (f *Facet) applyToScales(m func(*Scale)) {
 	}
 }
 
-func (f *Facet) debugScales(info string) {
+func (f *Plot) debugScales(info string) {
 	debug.V(info)
 	for i, s := range f.XScales {
 		debug.VV("X-Axis", i, s)
@@ -224,7 +249,7 @@ func (f *Facet) debugScales(info string) {
 	}
 }
 
-func (f *Facet) deDegenerateXandY() error {
+func (f *Plot) deDegenerateXandY() error {
 	// X- and Y-scales must not be unset or degenerate
 	for _, s := range f.XScales {
 		if math.IsNaN(s.Min) {
@@ -246,7 +271,7 @@ func (f *Facet) deDegenerateXandY() error {
 }
 
 // Range prepares all panels and scales of f.
-func (f *Facet) Range( /* Todo */ ) error {
+func (f *Plot) Range( /* Todo */ ) error {
 	for _, s := range f.XScales {
 		s.UpdateData(unsetInterval())
 	}
@@ -276,7 +301,7 @@ func (f *Facet) Range( /* Todo */ ) error {
 	return nil // TODO: fail for illegal log scales, etc.
 }
 
-func (f *Facet) setupColorAndSizeMaps() {
+func (f *Plot) setupColorAndSizeMaps() {
 	ss := f.Scales[SizeScale]
 	if ss.HasData() {
 		ss.SizeMap = func(x float64) vg.Length {
@@ -305,7 +330,7 @@ func (f *Facet) setupColorAndSizeMaps() {
 	}
 }
 
-func (f *Facet) needGuides() bool {
+func (f *Plot) needGuides() bool {
 	for s := FillScale; s < numScales; s++ {
 		if f.Scales[s].HasData() {
 			return true
@@ -315,14 +340,15 @@ func (f *Facet) needGuides() bool {
 }
 
 // Draw renders f to c.
-func (f *Facet) Draw(c draw.Canvas) error {
+func (f *Plot) Draw(c draw.Canvas) error {
 	if f.Title != "" {
 		c.FillText(f.Style.Title, vg.Point{X: c.Center().X, Y: c.Max.Y}, f.Title)
 		c.Max.Y -= f.Style.TitleHeight
 	}
 
 	if f.needGuides() {
-		guideWidth := f.Style.Guide.Size * 3 // TODO: this 3 should be calculated or settable
+		// TODO: guides should be vertically centered.
+		guideWidth := f.Style.Legend.Discrete.Size * 3 // TODO: this 3 should be calculated or settable
 		gc := c
 		gc.Min.X = gc.Max.X - guideWidth
 
@@ -330,7 +356,7 @@ func (f *Facet) Draw(c draw.Canvas) error {
 			gc.Max.Y = f.drawGuides(gc, combo)
 		}
 
-		c.Max.X -= guideWidth + f.Style.Guide.Pad
+		c.Max.X -= guideWidth + f.Style.Legend.Discrete.Pad
 	}
 
 	var h1, h2, h3, h4 vg.Length
@@ -456,19 +482,21 @@ func (f *Facet) Draw(c draw.Canvas) error {
 		for _, tick := range xtick {
 			panel := f.Panels[f.Rows-1][c]
 			r := panel.Map(tick.Value, 0)
-			sty := f.Style.XAxis.Tick.Major
-			length := f.Style.XAxis.Tick.Length
+			sty := f.Style.XAxis.MajorTick.LineStyle
+			length := f.Style.XAxis.MajorTick.Length
+			align := vg.Length(f.Style.XAxis.MajorTick.Align)
 			if tick.IsMinor() {
-				sty = f.Style.XAxis.Tick.Minor
-				length /= 2
+				sty = f.Style.XAxis.MinorTick.LineStyle
+				length = f.Style.XAxis.MinorTick.Length
+				align = vg.Length(f.Style.XAxis.MinorTick.Align)
 			}
 			canvas := panel.Canvas
 			y0 := canvas.Min.Y
-			canvas.StrokeLine2(sty, r.X, y0, r.X, y0-length)
+			canvas.StrokeLine2(sty, r.X, y0+align*length, r.X, y0+(align-1)*length)
 			if tick.IsMinor() {
 				continue
 			}
-			canvas.FillText(f.Style.XAxis.Tick.Label,
+			canvas.FillText(f.Style.XAxis.MajorTick.Label,
 				vg.Point{r.X, y0 - length}, tick.Label)
 		}
 	}
@@ -476,19 +504,21 @@ func (f *Facet) Draw(c draw.Canvas) error {
 		for _, tick := range ytick {
 			panel := f.Panels[r][0]
 			r := panel.Map(0, tick.Value)
-			sty := f.Style.YAxis.Tick.Major
-			length := f.Style.YAxis.Tick.Length
+			sty := f.Style.YAxis.MajorTick.LineStyle
+			length := f.Style.YAxis.MajorTick.Length
+			align := vg.Length(f.Style.YAxis.MajorTick.Align)
 			if tick.IsMinor() {
-				sty = f.Style.YAxis.Tick.Minor
-				length /= 2
+				sty = f.Style.YAxis.MinorTick.LineStyle
+				length = f.Style.YAxis.MinorTick.Length
+				align = vg.Length(f.Style.YAxis.MinorTick.Align)
 			}
 			canvas := panel.Canvas
 			x0 := canvas.Min.X
-			canvas.StrokeLine2(sty, x0-length, r.Y, x0, r.Y)
+			canvas.StrokeLine2(sty, x0+(align-1)*length, r.Y, x0+align*length, r.Y)
 			if tick.IsMinor() {
 				continue
 			}
-			canvas.FillText(f.Style.YAxis.Tick.Label,
+			canvas.FillText(f.Style.YAxis.MajorTick.Label,
 				vg.Point{x0 - length, r.Y}, tick.Label)
 		}
 	}
@@ -497,12 +527,12 @@ func (f *Facet) Draw(c draw.Canvas) error {
 }
 
 // MapSize maps the data value s to a display length via f's size scale.
-func (f *Facet) MapSize(s float64) vg.Length {
+func (f *Plot) MapSize(s float64) vg.Length {
 	if f.Scales[SizeScale].DataToUnit == nil {
 		return 0
 	}
 
-	max := 0.5 * f.Style.Guide.Size
+	max := 0.5 * f.Style.Legend.Discrete.Size
 	t := f.Scales[SizeScale].DataToUnit(s)
 	if t < 0 {
 		t = 0
@@ -514,7 +544,7 @@ func (f *Facet) MapSize(s float64) vg.Length {
 }
 
 // MapColor maps the data value s to a color via one of f's color scales.
-func (f *Facet) MapColor(s float64, scale int) color.Color {
+func (f *Plot) MapColor(s float64, scale int) color.Color {
 	if scale != ColorScale && scale != FillScale {
 		panic(scale)
 	}
@@ -523,7 +553,7 @@ func (f *Facet) MapColor(s float64, scale int) color.Color {
 
 // combineGuides returns which combinations of guides need to be drawn and
 // how they should be combined.
-func (f *Facet) combineGuides() [][]int {
+func (f *Plot) combineGuides() [][]int {
 	debug.V("Combining scales")
 	combinations := [][]int{}
 	for j := FillScale; j < numScales; j++ {
@@ -558,7 +588,7 @@ func (f *Facet) combineGuides() [][]int {
 }
 
 // Guides for different scales are combined iff:
-func (f *Facet) canCombineScales(j, k int) bool {
+func (f *Plot) canCombineScales(j, k int) bool {
 	s1, s2 := f.Scales[j], f.Scales[k]
 
 	// 1. The two scales are of the same kind (linear, discrete, time, ...)
@@ -607,14 +637,14 @@ func (f *Facet) canCombineScales(j, k int) bool {
 //   A. Color guides for continuous scales drawn as a continuous rainbow.
 //   B. Discrete guides where each label is shown as a small rectangle
 //      containing lines, symbols, etc.
-func (f *Facet) drawGuides(c draw.Canvas, scales []int) vg.Length {
+func (f *Plot) drawGuides(c draw.Canvas, scales []int) vg.Length {
 	if title := f.titleFor(scales); title != "" {
 		p := vg.Point{
-			X: c.Min.X + 0.5*f.Style.Guide.Size,
+			X: c.Min.X,
 			Y: c.Max.Y,
 		}
-		c.FillText(f.Style.Guide.Title, p, title)
-		c.Max.Y -= 2 * f.Style.Guide.Title.Font.Size
+		c.FillText(f.Style.Legend.Title, p, title)
+		c.Max.Y -= 2 * f.Style.Legend.Title.Font.Size
 	}
 
 	if f.isContinuousColorGuide(scales) {
@@ -625,7 +655,7 @@ func (f *Facet) drawGuides(c draw.Canvas, scales []int) vg.Length {
 	return f.drawDiscreteGuides(c, scales)
 }
 
-func (f *Facet) titleFor(scales []int) string {
+func (f *Plot) titleFor(scales []int) string {
 	for _, s := range scales {
 		if title := f.Scales[s].Title; title != "" {
 			return title
@@ -640,7 +670,7 @@ func (f *Facet) titleFor(scales []int) string {
 // TODO: Maybe Style and Symbol must be different kind of scales
 // as these cannot be anything than discrete as anything else cannont
 // be mapped to an aesthetics.
-func (f *Facet) tickerFor(scales []int) plot.Ticker {
+func (f *Plot) tickerFor(scales []int) plot.Ticker {
 	for _, s := range scales {
 		if f.Scales[s].Ticker != nil {
 			return f.Scales[s].Ticker
@@ -676,7 +706,7 @@ func (DiscreteTicks) Ticks(min, max float64) []plot.Tick {
 
 // colorMapFor looks for a color map defined on one of the given scales.
 // Only Fill- and ColorScales are inspected.
-func (f *Facet) colorMapFor(scales []int) palette.ColorMap {
+func (f *Plot) colorMapFor(scales []int) palette.ColorMap {
 	for i, s := range scales {
 		if i != FillScale && i != ColorScale {
 			continue
@@ -696,19 +726,19 @@ func (f *Facet) colorMapFor(scales []int) palette.ColorMap {
 	return cm
 }
 
-func (f *Facet) SizeMap() func(x float64) vg.Length {
+func (f *Plot) SizeMap() func(x float64) vg.Length {
 	if !f.Scales[SizeScale].HasData() {
 		return func(x float64) vg.Length { return 5 }
 	}
 
-	min, max := vg.Length(3), vg.Length(30) // TODO read from Style
+	min, max := vg.Length(3), f.Style.Legend.Discrete.Size
 
 	return func(x float64) vg.Length {
 		return min + vg.Length(x)*(max-min)
 	}
 }
 
-func (f *Facet) isContinuousColorGuide(scales []int) bool {
+func (f *Plot) isContinuousColorGuide(scales []int) bool {
 	if f.Scales[scales[0]].ScaleType == Discrete {
 		return false
 	}
@@ -720,7 +750,7 @@ func (f *Facet) isContinuousColorGuide(scales []int) bool {
 	return true
 }
 
-func (f *Facet) drawDiscreteGuides(c draw.Canvas, scales []int) vg.Length {
+func (f *Plot) drawDiscreteGuides(c draw.Canvas, scales []int) vg.Length {
 	debug.V("Drawing descrete scales", scales)
 	showFill := containsInt(scales, FillScale)
 	showSize := containsInt(scales, SizeScale)
@@ -731,13 +761,13 @@ func (f *Facet) drawDiscreteGuides(c draw.Canvas, scales []int) vg.Length {
 	ticker := f.tickerFor(scales)
 	ticks := ticker.Ticks(scale.Min, scale.Max)
 
-	boxSize, pad := f.Style.Guide.Size, vg.Length(3)
+	boxSize, pad := f.Style.Legend.Discrete.Size, vg.Length(3)
 	r := vg.Rectangle{
 		Min: vg.Point{c.Min.X, c.Max.Y - boxSize},
 		Max: vg.Point{c.Min.X + boxSize, c.Max.Y},
 	}
 
-	labelSty := f.Style.YAxis.Tick.Label
+	labelSty := f.Style.Legend.Label
 	labelSty.XAlign = draw.XLeft
 
 	var pal []color.Color
@@ -813,16 +843,16 @@ func containsInt(s []int, v int) bool {
 	return false
 }
 
-func (f *Facet) drawDiscreteColorGuide(c draw.Canvas, scale *Scale) vg.Length {
+func (f *Plot) drawDiscreteColorGuide(c draw.Canvas, scale *Scale) vg.Length {
 	a, e := int(scale.Data.Min), int(scale.Data.Max)
 	n := e - a + 1
-	size, pad := f.Style.Guide.Size, vg.Length(3)
+	size, pad := f.Style.Legend.Discrete.Size, vg.Length(3)
 	r := vg.Rectangle{
 		Min: vg.Point{c.Min.X, c.Max.Y - size},
 		Max: vg.Point{c.Min.X + size, c.Max.Y},
 	}
 
-	labelSty := f.Style.YAxis.Tick.Label
+	labelSty := f.Style.Legend.Label
 	labelSty.XAlign = draw.XLeft
 
 	pal := scale.ColorMap.Palette(n).Colors()
@@ -842,9 +872,9 @@ func (f *Facet) drawDiscreteColorGuide(c draw.Canvas, scale *Scale) vg.Length {
 	return r.Min.Y + size - 2*pad
 }
 
-func (f *Facet) drawContinuousColorGuide(c draw.Canvas, scale *Scale, colMap palette.ColorMap) vg.Length {
-	width := f.Style.Guide.Size
-	height := 5 * width
+func (f *Plot) drawContinuousColorGuide(c draw.Canvas, scale *Scale, colMap palette.ColorMap) vg.Length {
+	width := f.Style.Legend.Continuous.Size
+	height := f.Style.Legend.Continuous.Length
 	scale2Canvas := func(x float64) vg.Length {
 		t := scale.DataToUnit(x)
 		return c.Max.Y - height + height*vg.Length(t)
@@ -868,173 +898,26 @@ func (f *Facet) drawContinuousColorGuide(c draw.Canvas, scale *Scale, colMap pal
 	c.SetLineWidth(vg.Length(0.3))
 	c.Stroke(rect.Path())
 	ticks := plot.DefaultTicks{}.Ticks(scale.Min, scale.Max)
-	// TODO: Do not use YAxis style.
 	for _, tick := range ticks {
-		sty := f.Style.YAxis.Tick.Major
-		length := f.Style.YAxis.Tick.Length
-		if tick.IsMinor() {
-			sty = f.Style.YAxis.Tick.Minor
-			length /= 2
-		}
-		x := rect.Max.X
-		y := scale2Canvas(tick.Value)
-		c.StrokeLine2(sty, x, y, x+length, y)
 		if tick.IsMinor() {
 			continue
 		}
-		tsty := f.Style.YAxis.Tick.Label
+		sty := f.Style.Legend.Continuous.Tick.LineStyle
+		length := f.Style.Legend.Continuous.Tick.Length
+		align := vg.Length(f.Style.Legend.Continuous.Tick.Align)
+		y := scale2Canvas(tick.Value)
+		x := rect.Max.X
+		c.StrokeLine2(sty, x-align*length, y, x+(1-align)*length, y)
+
+		if f.Style.Legend.Continuous.Tick.Mirror {
+			x := rect.Min.X
+			c.StrokeLine2(sty, x+(align-1)*length, y, x+align*length, y)
+		}
+		tsty := f.Style.Legend.Label
 		tsty.XAlign = draw.XLeft
 		c.FillText(tsty,
-			vg.Point{x + length, y}, tick.Label)
+			vg.Point{x + (1-align)*length, y}, " "+tick.Label)
 	}
 
 	return rect.Min.Y
-}
-
-// DefaultFacetStyle returns a FacetStyle which mimics the appearance of ggplot2.
-// The baseFontSize is the font size for axis titles and strip labels, the title
-// is a bit bigger, tick labels a bit smaller.
-func DefaultFacetStyle(baseFontSize vg.Length) FacetStyle {
-	scale := func(x vg.Length, f float64) vg.Length {
-		return vg.Length(math.Round(f * float64(x)))
-	}
-
-	titleFont, err := vg.MakeFont("Helvetica-Bold", scale(baseFontSize, 1.2))
-	if err != nil {
-		panic(err)
-	}
-	baseFont, err := vg.MakeFont("Helvetica-Bold", baseFontSize)
-	if err != nil {
-		panic(err)
-	}
-	tickFont, err := vg.MakeFont("Helvetica-Bold", scale(baseFontSize, 1/1.2))
-	if err != nil {
-		panic(err)
-	}
-
-	fs := FacetStyle{}
-	fs.TitleHeight = scale(baseFontSize, 3)
-	fs.Title.Color = color.Black
-	fs.Title.Font = titleFont
-	fs.Title.XAlign = draw.XCenter
-	fs.Title.YAlign = draw.YTop
-
-	fs.Panel.Background = color.Gray16{0xeeee}
-	fs.Panel.PadX = scale(baseFontSize, 0.5)
-	fs.Panel.PadY = fs.Panel.PadX
-
-	fs.HStrip.Background = color.Gray16{0xcccc}
-	fs.HStrip.Font = baseFont
-	fs.HStrip.Height = scale(baseFontSize, 2)
-	fs.HStrip.XAlign = draw.XCenter
-	fs.HStrip.YAlign = -0.3 // draw.YCenter
-
-	fs.VStrip.Background = color.Gray16{0xcccc}
-	fs.VStrip.Font = baseFont
-	fs.VStrip.Width = scale(baseFontSize, 2.5)
-	fs.VStrip.XAlign = draw.XCenter
-	fs.VStrip.YAlign = -0.3 // draw.YCenter
-	fs.VStrip.Rotation = -math.Pi / 2
-
-	fs.Grid.Major.Color = color.White
-	fs.Grid.Major.Width = vg.Length(1)
-	fs.Grid.Minor.Color = color.White
-	fs.Grid.Minor.Width = vg.Length(0.5)
-
-	fs.XAxis.Title.Color = color.Black
-	fs.XAxis.Title.Font = baseFont
-	fs.XAxis.Title.Rotation = 0
-	fs.XAxis.Title.XAlign = draw.XCenter
-	fs.XAxis.Title.YAlign = draw.YAlignment(0.3)
-	fs.XAxis.TitleHeight = scale(baseFontSize, 2)
-
-	fs.XAxis.Line.Width = 0
-	fs.XAxis.Tick.Label.Color = color.Black
-	fs.XAxis.Tick.Label.Font = tickFont
-	fs.XAxis.Tick.Label.XAlign = draw.XCenter
-	fs.XAxis.Tick.Label.YAlign = draw.YTop
-	fs.XAxis.Tick.Major.Color = color.Gray16{0x1111}
-	fs.XAxis.Tick.Major.Width = vg.Length(1)
-	fs.XAxis.Tick.Length = vg.Length(5)
-
-	fs.YAxis.Title.Color = color.Black
-	fs.YAxis.Title.Font = baseFont
-	fs.YAxis.Title.Rotation = math.Pi / 2
-	fs.YAxis.Title.XAlign = draw.XCenter
-	fs.YAxis.Title.YAlign = draw.YTop
-	fs.YAxis.TitleWidth = scale(baseFontSize, 2)
-
-	fs.YAxis.Line.Width = 0
-	fs.YAxis.Tick.Label.Color = color.Black
-	fs.YAxis.Tick.Label.Font = tickFont
-	fs.YAxis.Tick.Label.XAlign = draw.XRight
-	fs.YAxis.Tick.Label.YAlign = -0.3 // draw.YCenter
-	fs.YAxis.Tick.Major.Color = color.Gray16{0x1111}
-	fs.YAxis.Tick.Major.Width = vg.Length(1)
-	fs.YAxis.Tick.Length = vg.Length(5)
-
-	fs.Guide.Title.Color = color.Black
-	fs.Guide.Title.Font = baseFont
-	fs.Guide.Title.XAlign = draw.XCenter
-	fs.Guide.Title.YAlign = draw.YTop
-	fs.Guide.Size = scale(baseFontSize, 2)
-	fs.Guide.Pad = scale(baseFontSize, 1)
-
-	return fs
-}
-
-type FacetStyle struct {
-	Title       draw.TextStyle
-	TitleHeight vg.Length
-
-	Panel struct {
-		Background color.Color
-		PadX       vg.Length
-		PadY       vg.Length
-	}
-	HStrip struct {
-		Background color.Color
-		Height     vg.Length
-		draw.TextStyle
-	}
-	VStrip struct {
-		Background color.Color
-		Width      vg.Length
-		draw.TextStyle
-	}
-
-	Grid struct {
-		Major draw.LineStyle
-		Minor draw.LineStyle
-	}
-
-	XAxis struct {
-		Title       draw.TextStyle
-		TitleHeight vg.Length
-		Line        draw.LineStyle
-		Tick        struct {
-			Label  draw.TextStyle
-			Major  draw.LineStyle
-			Minor  draw.LineStyle
-			Length vg.Length
-		}
-	}
-
-	YAxis struct {
-		Title      draw.TextStyle
-		TitleWidth vg.Length
-		Line       draw.LineStyle
-		Tick       struct {
-			Label  draw.TextStyle
-			Major  draw.LineStyle
-			Minor  draw.LineStyle
-			Length vg.Length
-		}
-	}
-
-	Guide struct {
-		Title draw.TextStyle
-		Size  vg.Length
-		Pad   vg.Length
-	}
 }

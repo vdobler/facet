@@ -233,15 +233,18 @@ func unsetInterval() Interval {
 }
 
 // Update expands i to include x.
-func (i *Interval) Update(x float64) {
-	if math.IsNaN(x) {
-		return
-	}
-	if !(i.Min < x) {
-		i.Min = x
-	}
-	if !(i.Max > x) {
-		i.Max = x
+func (i *Interval) Update(x ...float64) {
+	for _, v := range x {
+		if math.IsNaN(v) {
+			continue
+		}
+		// TODO: replace with math.Min/Max
+		if !(i.Min < v) {
+			i.Min = v
+		}
+		if !(i.Max > v) {
+			i.Max = v
+		}
 	}
 }
 

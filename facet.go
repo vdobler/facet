@@ -58,8 +58,8 @@ const (
 	XScale int = iota
 	YScale
 	FillScale
-	SizeScale
 	ColorScale
+	SizeScale
 	StyleScale
 	SymbolScale
 	numScales
@@ -399,6 +399,7 @@ func (f *Plot) Draw(c draw.Canvas) error {
 		xticks[c] = marker.Ticks(s.Min, s.Max)
 	}
 	for r, s := range f.YScales {
+		fmt.Println(r, s.Min, s.Max, s.String())
 		yticks[r] = marker.Ticks(s.Min, s.Max)
 	}
 
@@ -694,12 +695,10 @@ func (DiscreteTicks) Ticks(min, max float64) []plot.Tick {
 
 	ticks := []plot.Tick{}
 	for ; min <= max; min++ {
-		fmt.Println("XXXX", min, int(min))
 		ticks = append(ticks, plot.Tick{
 			Value: min,
 			Label: fmt.Sprintf("%d", int(min)),
 		})
-		fmt.Println("  ", fmt.Sprintf("%d", int(min)))
 	}
 	return ticks
 }
@@ -707,13 +706,13 @@ func (DiscreteTicks) Ticks(min, max float64) []plot.Tick {
 // colorMapFor looks for a color map defined on one of the given scales.
 // Only Fill- and ColorScales are inspected.
 func (f *Plot) colorMapFor(scales []int) palette.ColorMap {
-	for i, s := range scales {
-		if i != FillScale && i != ColorScale {
+	for _, s := range scales {
+		if s != FillScale && s != ColorScale {
 			continue
 		}
 		if cm := f.Scales[s].ColorMap; cm != nil {
 			cm.SetMin(0)
-			cm.SetMax(0)
+			cm.SetMax(1)
 			return cm
 		}
 	}

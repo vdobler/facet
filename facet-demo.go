@@ -3,9 +3,11 @@
 package main
 
 import (
+	"image/color"
 	"os"
 
 	"github.com/vdobler/facet"
+	"github.com/vdobler/facet/data"
 	"github.com/vdobler/facet/geom"
 	"gonum.org/v1/plot/palette/moreland"
 	"gonum.org/v1/plot/plotter"
@@ -44,14 +46,16 @@ func main() {
 	f.Scales[facet.SymbolScale].ScaleType = facet.Discrete
 
 	// Rectangles
-	xyuv := []geom.XYUV{
+	xyuv := data.XYUVs{
 		{10, 10, 20, 15},
 		{5, 0, 15, 8},
 		{14, 7, 18, 20},
 	}
-	f.Panels[0][0].Geoms = []facet.Geom{
-		geom.Rectangle{XYUV: xyuv},
-	}
+	rectGeom := geom.Rectangle{XYUV: xyuv}
+	rectGeom.Default.Fill = color.RGBA{0x77, 0xff, 0x77, 0xff}
+	rectGeom.Default.Border.Color = color.RGBA{0, 0xcc, 0, 0xff}
+	rectGeom.Default.Border.Width = 2
+	f.Panels[0][0].Geoms = []facet.Geom{rectGeom}
 
 	// Bubble plot
 	xyz := plotter.XYZs{
@@ -104,8 +108,8 @@ func main() {
 			Color: func(i int) float64 {
 				return float64(i)
 			},
-			Style: func(i int) float64 {
-				return float64(i)
+			Style: func(i int) int {
+				return i
 			},
 			Size: func(i int) float64 {
 				return float64(i + 2)
@@ -113,6 +117,31 @@ func main() {
 		},
 	}
 
+	// Bar plot
+	spending := plotter.XYZs{
+		{10, 5, 1},
+		{20, 3, 1},
+		{30, 7, 1},
+		{40, 2, 1},
+		{50, 6, 1},
+		{10, 2, 2},
+		{20, 4, 2},
+		{30, 1, 2},
+		{40, 3, 2},
+		{50, 5, 2},
+		{20, 4, 3},
+		{40, 2, 3},
+		{50, 1, 3},
+	}
+
+	// First Column
+	f.Panels[0][2].Geoms = []facet.Geom{
+		geom.Bar{
+			XY:       plotter.XYValues{spending},
+			Fill:     func(i int) float64 { return spending[i].Z },
+			Position: "stack",
+		},
+	}
 	img := vgimg.New(800, 600)
 	dc := draw.New(img)
 	f.Range()

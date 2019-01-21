@@ -58,32 +58,54 @@ func UpdateAestheticsRanges(dr *facet.DataRanges, n int,
 	}
 }
 
+// BoxStyle combines a line style (for the border with a fill color for
+// the interior of a geom.  TODO: add the rest like size, symbol too?
+type BoxStyle struct {
+	Fill   color.Color
+	Border draw.LineStyle
+}
+
+// CanonicRectangle returns the canonical form of r, i.e. its Min points
+// having smaller coordinates than its Max point.
+func CanonicRectangle(r vg.Rectangle) vg.Rectangle {
+	if r.Min.X > r.Max.X {
+		r.Min.X, r.Max.X = r.Max.X, r.Min.X
+	}
+	if r.Min.Y > r.Max.Y {
+		r.Min.Y, r.Max.Y = r.Max.Y, r.Min.Y
+	}
+	return r
+}
+
 // ----------------------------------------------------------------------------
 // Rectangle
 
 // Rectangle draws rectangles.
+// The coordinates are the outside coordinates, i.e. if the border is drawn for
+// the rectangle then this border is drawn inside the rectangle given by the
+// coordinates.
 type Rectangle struct {
-	XYUV              data.XYUVer
-	Color, Fill, Size Aesthetic
-	Style             DiscreteAesthetic
+	XYUV        data.XYUVer
+	Color, Fill Aesthetic
+	Size, Alpha Aesthetic
+	Style       DiscreteAesthetic
 
-	Default struct {
-		Fill   color.Color
-		Border draw.LineStyle
-	}
+	Default BoxStyle
 }
 
 // Draw implements facet.Geom.Draw.
 func (r Rectangle) Draw(panel *facet.Panel) {
-	var fill color.Color = color.RGBA{0, 0, 0x10, 0xff}
-	if r.Default.Fill != nil {
-		fill = r.Default.Fill
-	}
+	fill := r.Default.Fill
 	border := r.Default.Border
+	if fill == nil && border.Color == nil {
+		border.Color = color.RGBA{0, 0, 0x10, 0xff}
+		border.Width = 2 // TODO ??
+	}
 
 	for i := 0; i < r.XYUV.Len(); i++ {
 		x, y, u, v := r.XYUV.XYUV(i)
 		rect := vg.Rectangle{Min: panel.Map(x, y), Max: panel.Map(u, v)}
+		rect = CanonicRectangle(rect)
 		if r.Fill != nil {
 			fill = panel.Scales[facet.FillScale].MapColor(r.Fill(i))
 		}
@@ -98,10 +120,17 @@ func (r Rectangle) Draw(panel *facet.Panel) {
 		}
 		// TODO: Style
 
-		panel.Canvas.SetColor(border.Color)
-		panel.Canvas.SetLineWidth(border.Width)
-		panel.Canvas.SetLineDash(border.Dashes, border.DashOffs)
-		panel.Canvas.Stroke(rect.Path())
+		if border.Color != nil && border.Width > 0 {
+			w := 0.4999 * border.Width
+			rect.Min.X += w
+			rect.Min.Y += w
+			rect.Max.X -= w
+			rect.Max.Y -= w
+			panel.Canvas.SetColor(border.Color)
+			panel.Canvas.SetLineWidth(border.Width)
+			panel.Canvas.SetLineDash(border.Dashes, border.DashOffs)
+			panel.Canvas.Stroke(rect.Path())
+		}
 	}
 }
 
@@ -119,19 +148,23 @@ func (r Rectangle) AllDataRanges() facet.DataRanges {
 
 // Bar draws rectangles standing/hanging from y=0.
 type Bar struct {
-	XY       plotter.XYer
-	Fill     Aesthetic
-	Color    Aesthetic
-	Size     Aesthetic
-	Style    DiscreteAesthetic
+	XY    plotter.XYer
+	Fill  Aesthetic
+	Color Aesthetic
+	Size  Aesthetic
+	Style DiscreteAesthetic
+
 	Position string  // "stack" (default), "dogde" or "fill"
-	Gap      float64 // Gap between bars as fraction of bar width.
-	// TODO: Spacing in a group of dodged bars.
+	GGap     float64 // Gap between groups as fraction of sample distance.
+	BGap     float64 // Gap inside a group as fraction of sample distance.
+
+	Default BoxStyle
 }
 
 // Draw implements facet.Geom.Draw.
 func (b Bar) Draw(p *facet.Panel) {
 	rect := b.rects()
+	rect.Default = b.Default
 	rect.Draw(p)
 }
 
@@ -144,33 +177,26 @@ func (b Bar) rects() Rectangle {
 	if b.Position == "" {
 		b.Position = "stack"
 	}
-	if b.Gap == 0 {
-		b.Gap = 0.2
-	}
-
 	XYUV := make(data.XYUVs, b.XY.Len())
 
 	g := b.groups()
-	minDelta := g.minDelta()
-	halfBarWidth := (1 - b.Gap) * minDelta / 2
-	if b.Position == "dodge" {
-		maxGroupSize := 0
-		for _, is := range g {
-			if len(is) > maxGroupSize {
-				maxGroupSize = len(is)
-			}
-		}
-		halfBarWidth /= float64(maxGroupSize)
-	}
 
-	for _, x := range g.xs() {
-		is := g[x] // indices of all bars to draw at x
+	/*
+		minDelta := g.minDelta()
+		halfBarWidth := (1 - b.Gap) * minDelta / 2
+		if b.Position == "dodge" {
+			maxGroupSize = g.maxGroupSize()
+			halfBarWidth /= float64(maxGroupSize)
+		}
+	*/
+	for _, x := range g.Xs() {
+		is := g.Group[x] // indices of all bars to draw at x
 		switch b.Position {
 		case "stack", "fill":
-			X, Y := x-halfBarWidth, 0.0
-			U, V := x+halfBarWidth, 0.0
 			ymin, ymax := 0.0, 0.0
+			Y, V := 0.0, 0.0
 			for _, i := range is {
+				center, halfwidth := g.Width(x, i)
 				_, y := b.XY.XY(i)
 				if y < 0 {
 					Y, V = ymin, ymin+y
@@ -180,8 +206,8 @@ func (b Bar) rects() Rectangle {
 					Y, V = ymax, ymax+y
 					ymax += y
 				}
-				XYUV[i].X, XYUV[i].Y = X, Y
-				XYUV[i].U, XYUV[i].V = U, V
+				XYUV[i].X, XYUV[i].Y = center-halfwidth, Y
+				XYUV[i].U, XYUV[i].V = center+halfwidth, V
 			}
 			if b.Position == "fill" {
 				ymin *= -1
@@ -196,14 +222,16 @@ func (b Bar) rects() Rectangle {
 				}
 			}
 		case "dodge":
-			n := len(is)
-			x -= float64(n) * halfBarWidth
-			barWidth := 2 * halfBarWidth
+			/*
+				n := len(is)
+				x -= float64(n) * halfBarWidth
+				barWidth := 2 * halfBarWidth
+			*/
 			for _, i := range is {
+				center, halfwidth := g.Width(x, i)
 				_, y := b.XY.XY(i)
-				XYUV[i].X, XYUV[i].Y = x, 0
-				XYUV[i].U, XYUV[i].V = x+barWidth, y
-				x += 2 * halfBarWidth
+				XYUV[i].X, XYUV[i].Y = center-halfwidth, 0
+				XYUV[i].U, XYUV[i].V = center+halfwidth, y
 			}
 		default:
 			panic("geom.Bar: unknown value for Position: " + b.Position)
@@ -220,51 +248,163 @@ func (b Bar) rects() Rectangle {
 
 }
 
-func (b Bar) groups() barGroups {
-	g := make(barGroups, b.XY.Len())
+func (b Bar) groups() *BarGroups {
+	g := NewBarGroups(b.Position, b.GGap, b.BGap, true)
 	for i := 0; i < b.XY.Len(); i++ {
 		x, _ := b.XY.XY(i)
-		g.add(x, i)
+		g.Record(x, i)
 	}
 	return g
 }
 
-type barGroups map[float64][]int
+// ----------------------------------------------------------------------------
+// BarGroups helps determing bar sizes for Bar or Boxplots
 
-func (bg barGroups) add(x float64, i int) {
-	bg[x] = append(bg[x], i)
+type BarGroups struct {
+	Group    map[float64][]int
+	Position string  // "dodge" or something else
+	Ggap     float64 // between groups
+	Dgap     float64 // between bars inside a group if dodged
+	Same     bool    // Same width for all bars?
+
+	xs []float64
+	md float64
+	lg int
 }
 
-func (bg barGroups) xs() []float64 {
-	xs := make([]float64, 0, len(bg))
-	for x := range bg {
-		xs = append(xs, x)
+// NewBarGroups creates a BarGroups for dodged bar positioning with
+// sensible gaps between bars.
+func NewBarGroups(position string, groupGap, barGap float64, sameWidth bool) *BarGroups {
+	if groupGap == 0 {
+		groupGap = 0.2
 	}
-	sort.Float64s(xs)
-	return xs
+	return &BarGroups{
+		Group:    make(map[float64][]int),
+		Position: position,
+		Ggap:     groupGap,
+		Dgap:     barGap,
+		Same:     sameWidth,
+	}
 }
 
-func (bg barGroups) minDelta() float64 {
-	if len(bg) == 0 {
-		return 0
+// Record the point i with the given x coordinate.
+func (bg *BarGroups) Record(x float64, i int) {
+	bg.Group[x] = append(bg.Group[x], i)
+	bg.xs = nil
+}
+
+// Bar returns the center and the halfwidth for the bar i at x.
+func (bg *BarGroups) Width(x float64, i int) (center float64, halfwidth float64) {
+	minDelta := bg.MinDelta()
+	nonGapWidth := minDelta * (1 - bg.Ggap)
+
+	if bg.Position != "dodge" {
+		return x, nonGapWidth / 2
 	}
-	if len(bg) == 1 {
-		return 1
+
+	n := len(bg.Group[x])
+	if bg.Same {
+		n = bg.MaxGroupSize()
 	}
-	xs := bg.xs()
-	min := xs[1] - xs[0]
-	for i := 2; i < len(xs); i++ {
-		if m := xs[i] - xs[i-1]; m < min {
-			min = m
+	if n == 0 {
+		panic(fmt.Sprintf("No data at %g", x))
+	}
+	halfwidth = nonGapWidth / float64(2*n)
+
+	g := -1
+	for j, k := range bg.Group[x] {
+		if k == i {
+			g = j
+			break
 		}
 	}
-	return min
+	if g == -1 {
+		panic(fmt.Sprintf("No point %d at %g", i, x))
+	}
+
+	center = x
+	m := len(bg.Group[x])
+	center += float64(2*g-m+1) * halfwidth
+
+	halfwidth -= minDelta * bg.Dgap
+
+	return center, halfwidth
+}
+
+// Xs returns the sorted list of recorded x values.
+func (bg *BarGroups) Xs() []float64 {
+	bg.recalc()
+	return bg.xs
+}
+
+// MinDelta returns the smallest difference between recorded x-values.
+func (bg *BarGroups) MinDelta() float64 {
+	bg.recalc()
+	return bg.md
+}
+
+// MaxGroupSize determines the maximum number of values recorded per x-values.
+func (bg *BarGroups) MaxGroupSize() int {
+	bg.recalc()
+	return bg.lg
+}
+
+func (bg *BarGroups) XRange() (xmin float64, xmax float64) {
+	bg.recalc()
+
+	left, right := bg.xs[0], bg.xs[len(bg.xs)-1]
+
+	li := bg.Group[left][0]
+	c, hw := bg.Width(left, li)
+	xmin = c - hw
+
+	rg := bg.Group[right]
+	ri := rg[len(rg)-1]
+	c, hw = bg.Width(right, ri)
+	xmax = c + hw
+
+	return xmin, xmax
+}
+
+func (bg *BarGroups) recalc() {
+	if bg.xs != nil {
+		return
+	}
+
+	// xs: all x-valuses in sorted order
+	bg.xs = make([]float64, 0, len(bg.Group))
+	for x := range bg.Group {
+		bg.xs = append(bg.xs, x)
+	}
+	sort.Float64s(bg.xs)
+
+	// md: minumum distance between two x-valuse
+	if len(bg.Group) == 0 {
+		bg.md = 0
+	}
+	if len(bg.Group) == 1 {
+		bg.md = 1
+	}
+	bg.md = bg.xs[1] - bg.xs[0]
+	for i := 2; i < len(bg.xs); i++ {
+		if m := bg.xs[i] - bg.xs[i-1]; m < bg.md {
+			bg.md = m
+		}
+	}
+
+	// lg: largest groups size
+	bg.lg = 0
+	for _, is := range bg.Group {
+		if len(is) > bg.lg {
+			bg.lg = len(is)
+		}
+	}
 }
 
 // ----------------------------------------------------------------------------
 // Point
 
-// Point draws circular points.
+// Point draws points / symbols.
 type Point struct {
 	XY     plotter.XYer
 	Color  Aesthetic
@@ -467,5 +607,123 @@ func (lp LinesPoints) AllDataRanges() facet.DataRanges {
 		UpdateAestheticsRanges(&dr, xy.Len(), nil, lp.Color, lp.Size, lp.Style, lp.Symbol)
 	}
 
+	return dr
+}
+
+// ----------------------------------------------------------------------------
+// Boxplot
+
+// Boxplot draws rectangles.
+// The coordinates are the outside coordinates, i.e. if the border is drawn for
+// the rectangle then this border is drawn inside the rectangle given by the
+// coordinates.
+type Boxplot struct {
+	Boxplot     data.Boxplotter
+	Color, Fill Aesthetic
+	Size, Alpha Aesthetic
+	Stroke      DiscreteAesthetic
+	Shape       DiscreteAesthetic
+
+	Position     string
+	Default      BoxStyle
+	DefaultPoint draw.GlyphStyle
+	GGap, BGap   float64
+}
+
+// Draw implements facet.Geom.Draw.
+func (b Boxplot) Draw(panel *facet.Panel) {
+	// A Boxplot is drawn by:
+	//     - Rectangle in XYUV: One per data point.
+	//     - Lines in XY: Three per data point
+	//     - Points in XYZ: arbitrary many per data point
+	XYUV := make(data.XYUVs, b.Boxplot.Len())
+	XY := make([]plotter.XYer, 3*b.Boxplot.Len())
+	for j := range XY {
+		XY[j] = make(plotter.XYs, 2)
+	}
+	XYZ := plotter.XYZs{}
+
+	g := NewBarGroups(b.Position, b.GGap, b.BGap, true)
+	for i := 0; i < b.Boxplot.Len(); i++ {
+		x, _, _, _, _, _, _ := b.Boxplot.Boxplot(i)
+		g.Record(x, i)
+	}
+
+	for i := 0; i < b.Boxplot.Len(); i++ {
+		x, min, q1, median, q3, max, out := b.Boxplot.Boxplot(i)
+		// TODO: box width and dodging
+
+		// The box.
+		center, halfwidth := g.Width(x, i)
+		xmin, xmax := center-halfwidth, center+halfwidth
+		XYUV[i].X, XYUV[i].U = xmin, xmax
+		XYUV[i].Y, XYUV[i].V = q1, q3
+
+		// The lines
+		hor := make(plotter.XYs, 2)
+		hor[0].X, hor[0].Y = xmin, median
+		hor[1].X, hor[1].Y = xmax, median
+		XY[i*3] = hor
+		vert1 := make(plotter.XYs, 2)
+		vert1[0].X, vert1[0].Y = center, q3
+		vert1[1].X, vert1[1].Y = center, max
+		XY[i*3+1] = vert1
+		vert2 := make(plotter.XYs, 2)
+		vert2[0].X, vert2[0].Y = center, q1
+		vert2[1].X, vert2[1].Y = center, min
+		XY[i*3+2] = vert2
+
+		// The outliers
+		for _, o := range out {
+			z := 0.0
+			if b.Color != nil {
+				z = b.Color(i)
+			}
+			XYZ = append(XYZ, struct{ X, Y, Z float64 }{center, o, z})
+		}
+	}
+	rect := Rectangle{
+		XYUV:  XYUV,
+		Color: b.Color,
+		Fill:  b.Fill,
+		Size:  b.Size,
+		Style: b.Stroke,
+
+		Default: b.Default,
+	}
+	line := Lines{
+		XY: XY,
+
+		Default: b.Default.Border,
+	}
+	point := Point{
+		XY:      plotter.XYValues{XYZ},
+		Default: b.DefaultPoint,
+	}
+	if b.Color != nil {
+		line.Color = func(i int) float64 { return b.Color(i / 3) }
+		point.Color = func(i int) float64 { return XYZ[i].Z }
+	} // TODO: same for Size and Stroke
+
+	rect.Draw(panel)
+	line.Draw(panel)
+	point.Draw(panel)
+}
+
+func (b Boxplot) AllDataRanges() facet.DataRanges {
+	dr := facet.NewDataRanges()
+	g := NewBarGroups(b.Position, b.GGap, b.BGap, true)
+
+	for i := 0; i < b.Boxplot.Len(); i++ {
+		x, min, _, _, _, max, out := b.Boxplot.Boxplot(i)
+		g.Record(x, i)
+		dr[facet.XScale].Update(x)
+		dr[facet.YScale].Update(min, max)
+		dr[facet.YScale].Update(out...)
+	}
+	xmin, xmax := g.XRange()
+	dr[facet.XScale].Update(xmin, xmax)
+
+	UpdateAestheticsRanges(&dr, b.Boxplot.Len(), b.Fill, b.Color, b.Size, b.Stroke, nil)
 	return dr
 }

@@ -4,6 +4,9 @@ package data
 
 import "math"
 
+// ----------------------------------------------------------------------------
+// (X,Y), (U,V)
+
 // XYUVer wraps the Len and XYUV methods.
 type XYUVer interface {
 	// Len returns the number of x, y, u, v quadruples.
@@ -34,3 +37,28 @@ type XYUVs []struct{ X, Y, U, V float64 }
 
 func (d XYUVs) Len() int                        { return len(d) }
 func (d XYUVs) XYUV(i int) (x, y, u, v float64) { return d[i].X, d[i].Y, d[i].U, d[i].V }
+
+// ----------------------------------------------------------------------------
+// Boxplot
+
+// Boxplotter wraps the Len and Boxplot methods.
+type Boxplotter interface {
+	// Len returns the number of boxes.
+	Len() int
+
+	// Boxplot returns an data for the i'th boxplot.
+	Boxplot(i int) (x, min, q1, median, q3, max float64, outlier []float64)
+}
+
+// Boxplots implememnts the Boxplotter interface.
+type Boxplots []struct {
+	X                        float64
+	Min, Q1, Median, Q3, Max float64
+	Outlier                  []float64
+}
+
+func (b Boxplots) Len() int { return len(b) }
+
+func (b Boxplots) Boxplot(i int) (x, min, q1, median, q3, max float64, outlier []float64) {
+	return b[i].X, b[i].Min, b[i].Q1, b[i].Median, b[i].Q3, b[i].Max, b[i].Outlier
+}

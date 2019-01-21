@@ -3,6 +3,7 @@
 package main
 
 import (
+	"image/color"
 	"os"
 
 	"github.com/vdobler/facet"
@@ -88,6 +89,12 @@ func main() {
 			XY:       plotter.XYValues{xyz},
 			Color:    func(i int) float64 { return xyz[i].Z },
 			Position: "stack",
+			Default: geom.BoxStyle{
+				Fill: color.Transparent,
+				Border: draw.LineStyle{
+					Width: 6,
+				},
+			},
 		},
 	}
 	f.Panels[1][1].Geoms = []facet.Geom{

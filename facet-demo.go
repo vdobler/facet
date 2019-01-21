@@ -133,8 +133,6 @@ func main() {
 		{40, 2, 3},
 		{50, 1, 3},
 	}
-
-	// First Column
 	f.Panels[0][2].Geoms = []facet.Geom{
 		geom.Bar{
 			XY:       plotter.XYValues{spending},
@@ -142,6 +140,35 @@ func main() {
 			Position: "stack",
 		},
 	}
+
+	// Boxplot
+	box := data.Boxplots{
+		{6, 0, 2, 3, 5, 7, nil},
+		{10, 3, 5, 7, 8, 10, []float64{2, 11, 11.5}},
+		{14, 4, 5, 6, 7, 8, nil},
+		{18, 3, 7, 9, 10, 13, []float64{1.5, 2, 14.5}},
+		{10, 2, 3, 4, 6, 6, []float64{1, 7}},
+		{14, 2.2, 3.5, 3.8, 4.1, 4.5, []float64{1, 2, 5, 5.5}},
+	}
+	f.Panels[1][0].Geoms = []facet.Geom{
+		geom.Boxplot{
+			Boxplot:  box,
+			Position: "dodge",
+			Color:    func(i int) float64 { return box[i].Median },
+			Default: geom.BoxStyle{
+				Fill: color.Transparent,
+				Border: draw.LineStyle{
+					Color: color.RGBA{0xcc, 0, 0, 0xff},
+					Width: 2,
+				},
+			},
+			DefaultPoint: draw.GlyphStyle{
+				Color:  color.RGBA{0xcc, 0, 0, 0xff},
+				Radius: 2,
+			},
+		},
+	}
+
 	img := vgimg.New(800, 600)
 	dc := draw.New(img)
 	f.Range()

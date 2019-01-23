@@ -8,13 +8,14 @@
 // the following scales:
 //   - X-Scale        The x- and y scale are mandatory for all faceted
 //   - Y-Scale        plots. The scales are drawn as axis, not as guides.
-//   - Size-Scale     The size of points.
-//   - Fill-Scale     The fill color
+//   - Alpha-Scale    The alpha (opacity) value
 //   - Color-Scale    The line and symbol color
-//   - Symbol-Scale   The symbol used to draw points
-//   - Style-Scale    The line style (dash pattern)
+//   - Fill-Scale     The fill color
+//   - Shape-Scale    The symbol used to draw points
+//   - Size-Scale     The size of points and width of lines
+//   - Stroke-Scale   The line style (dash pattern)
 //
-// The Symbol and Style scales cannot be continouos but must be discrete
+// The Shape and Stroke scales cannot be continouos but must be discrete
 // because only a discrete set of symbol types and line styles are available.
 // The other scales can be discrete or continouos.
 //

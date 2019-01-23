@@ -93,6 +93,27 @@ type Rectangle struct {
 	Default BoxStyle
 }
 
+// clipRect clips rect to canvas. The returned rectangle is in the canonical form.
+func clipRect(rect vg.Rectangle, canvas draw.Canvas) vg.Rectangle {
+	rect = CanonicRectangle(rect)
+	limit := CanonicRectangle(canvas.Rectangle)
+
+	if rect.Min.X < limit.Min.X {
+		rect.Min.X = limit.Min.X
+	}
+	if rect.Min.Y < limit.Min.Y {
+		rect.Min.Y = limit.Min.Y
+	}
+
+	if rect.Max.X > limit.Max.X {
+		rect.Max.X = limit.Max.X
+	}
+	if rect.Max.Y > limit.Max.Y {
+		rect.Min.Y = limit.Min.Y
+	}
+	return rect
+}
+
 // Draw implements facet.Geom.Draw.
 func (r Rectangle) Draw(panel *facet.Panel) {
 	fill := r.Default.Fill
@@ -104,19 +125,24 @@ func (r Rectangle) Draw(panel *facet.Panel) {
 
 	for i := 0; i < r.XYUV.Len(); i++ {
 		x, y, u, v := r.XYUV.XYUV(i)
-		rect := vg.Rectangle{Min: panel.Map(x, y), Max: panel.Map(u, v)}
-		rect = CanonicRectangle(rect)
+		min, minok := panel.MapXY(x, y)
+		max, maxok := panel.MapXY(u, v)
+		if !minok && !maxok {
+			continue // both corners outside of scale range
+		}
+		rect := vg.Rectangle{Min: min, Max: max}
+		rect = clipRect(rect, panel.Canvas)
 		if r.Fill != nil {
-			fill = panel.Scales[facet.FillScale].MapColor(r.Fill(i))
+			fill = panel.MapFill(r.Fill(i))
 		}
 		panel.Canvas.SetColor(fill)
 		panel.Canvas.Fill(rect.Path())
 
 		if r.Color != nil {
-			border.Color = panel.Scales[facet.ColorScale].MapColor(r.Color(i))
+			border.Color = panel.MapColor(r.Color(i))
 		}
 		if r.Size != nil {
-			border.Width = panel.Scales[facet.SizeScale].SizeMap(r.Size(i))
+			border.Width = panel.MapSize(r.Size(i))
 		}
 		// TODO: Style
 
@@ -417,13 +443,12 @@ type Point struct {
 func (p Point) Draw(panel *facet.Panel) {
 	dye := p.Default.Color
 	if dye == nil {
-		dye = color.RGBA{0x22, 0x22, 0x22, 0xff}
+		dye = panel.Plot.Style.GeomDefault.Color
 	}
-	colorScale := panel.Scales[facet.ColorScale]
 
 	size := p.Default.Radius
 	if size == 0 {
-		size = vg.Length(4)
+		size = panel.Plot.Style.GeomDefault.Size
 	}
 
 	symbol := p.Default.Shape
@@ -433,11 +458,16 @@ func (p Point) Draw(panel *facet.Panel) {
 
 	for i := 0; i < p.XY.Len(); i++ {
 		x, y := p.XY.XY(i)
-		center := panel.Map(x, y)
+		center, ok := panel.MapXY(x, y)
+		if !ok {
+			continue // TODO: should notify Plot/Panel about dropped data point.
+		}
 
 		if p.Size != nil {
-			val := p.Size(i)
-			size = panel.Scales[facet.SizeScale].SizeMap(val)
+			size = panel.MapSize(p.Size(i))
+			if size == 0 {
+				continue
+			}
 		}
 
 		if p.Symbol != nil {
@@ -445,18 +475,7 @@ func (p Point) Draw(panel *facet.Panel) {
 		}
 
 		if p.Color != nil {
-			val := p.Color(i)
-			if !colorScale.InRange(val) {
-				fmt.Println("==> ", colorScale.Min, val, colorScale.Max)
-				dye = color.RGBA{0x22, 0x22, 0x22, 0x44}
-			} else {
-				u := colorScale.DataToUnit(val)
-				var err error
-				dye, err = colorScale.ColorMap.At(u)
-				if err != nil {
-					panic(err)
-				}
-			}
+			dye = panel.MapColor(p.Color(i))
 		}
 
 		sty := draw.GlyphStyle{
@@ -497,13 +516,12 @@ type Lines struct {
 func (l Lines) Draw(panel *facet.Panel) {
 	dye := l.Default.Color
 	if dye == nil {
-		dye = color.RGBA{0, 0, 0x22, 0xff}
+		dye = panel.Plot.Style.GeomDefault.Color
 	}
-	colorScale := panel.Scales[facet.ColorScale]
 
 	width := l.Default.Width
 	if width == 0 {
-		width = vg.Length(1)
+		width = panel.Plot.Style.GeomDefault.LineWidth
 	}
 
 	dashes := l.Default.Dashes
@@ -512,18 +530,17 @@ func (l Lines) Draw(panel *facet.Panel) {
 	for g, xy := range l.XY {
 		ps := make([]vg.Point, xy.Len())
 		for i := 0; i < xy.Len(); i++ {
-			x, y := xy.XY(i)
-			ps[i] = panel.Map(x, y)
+			ps[i], _ = panel.MapXY(xy.XY(i)) // Clipping done below.
 		}
 
 		if l.Color != nil {
-			dye = colorScale.MapColor(l.Color(g))
+			dye = panel.MapColor(l.Color(g))
 		}
 		if l.Style != nil {
 			dashes = plotutil.Dashes(l.Style(g))
 		}
 		if l.Size != nil {
-			width = vg.Length(l.Size(g)) // TODO: Proper mapping!!
+			width = panel.MapSize(l.Size(g))
 		}
 
 		sty := draw.LineStyle{
@@ -604,8 +621,8 @@ func (lp LinesPoints) AllDataRanges() facet.DataRanges {
 			dr[facet.XScale].Update(x)
 			dr[facet.YScale].Update(y)
 		}
-		UpdateAestheticsRanges(&dr, xy.Len(), nil, lp.Color, lp.Size, lp.Style, lp.Symbol)
 	}
+	UpdateAestheticsRanges(&dr, len(lp.XY), nil, lp.Color, lp.Size, lp.Style, lp.Symbol)
 
 	return dr
 }

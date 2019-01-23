@@ -91,6 +91,13 @@ type Style struct {
 			}
 		}
 	}
+
+	GeomDefault struct {
+		Color     color.Color
+		FillColor color.Color
+		LineWidth vg.Length
+		Size      vg.Length
+	}
 }
 
 // DefaultFacetStyle returns a FacetStyle which mimics the appearance of ggplot2.
@@ -123,17 +130,17 @@ func DefaultFacetStyle(baseFontSize vg.Length) Style {
 	fs.Title.XAlign = draw.XCenter
 	fs.Title.YAlign = draw.YTop
 
-	fs.Panel.Background = color.Gray16{0xeeee}
+	fs.Panel.Background = color.Gray{0xeb}
 	fs.Panel.PadX = scale(baseFontSize, 0.5)
 	fs.Panel.PadY = fs.Panel.PadX
 
-	fs.HStrip.Background = color.Gray16{0xcccc}
+	fs.HStrip.Background = color.Gray{0xd2}
 	fs.HStrip.Font = baseFont
 	fs.HStrip.Height = scale(baseFontSize, 2)
 	fs.HStrip.XAlign = draw.XCenter
 	fs.HStrip.YAlign = -0.3 // draw.YCenter
 
-	fs.VStrip.Background = color.Gray16{0xcccc}
+	fs.VStrip.Background = color.Gray{0xd2}
 	fs.VStrip.Font = baseFont
 	fs.VStrip.Width = scale(baseFontSize, 2.5)
 	fs.VStrip.XAlign = draw.XCenter
@@ -216,5 +223,9 @@ func DefaultFacetStyle(baseFontSize vg.Length) Style {
 	fs.Legend.Continuous.Tick.Align = 1
 	fs.Legend.Continuous.Tick.Mirror = true
 
+	fs.GeomDefault.Color = color.NRGBA{0x00, 0x07, 0x20, 0xff}
+	fs.GeomDefault.FillColor = color.NRGBA{0x30, 0x30, 0x30, 0xff}
+	fs.GeomDefault.LineWidth = vg.Length(1)
+	fs.GeomDefault.Size = vg.Length(3)
 	return fs
 }

@@ -9,7 +9,6 @@ import (
 	"github.com/vdobler/facet"
 	"github.com/vdobler/facet/data"
 	"github.com/vdobler/facet/geom"
-	"gonum.org/v1/plot/palette/moreland"
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/vg/draw"
 	"gonum.org/v1/plot/vg/vgimg"
@@ -33,11 +32,11 @@ func main() {
 	rainbow.StartHue = 2.0 / 6.0
 	f.Scales[facet.ColorScale].Title = "Color"
 	f.Scales[facet.ColorScale].ScaleType = facet.Linear
-	f.Scales[facet.ColorScale].ColorMap = rainbow
+	// f.Scales[facet.ColorScale].ColorMap = rainbow
 
 	f.Scales[facet.FillScale].Title = "Fill"
 	f.Scales[facet.FillScale].ScaleType = facet.Linear
-	f.Scales[facet.FillScale].ColorMap = moreland.Kindlmann()
+	// f.Scales[facet.FillScale].ColorMap = moreland.Kindlmann()
 
 	f.Scales[facet.SizeScale].Title = "Size"
 	f.Scales[facet.StyleScale].Title = "Style"

@@ -2,13 +2,10 @@ package facet
 
 import (
 	"fmt"
-	"image/color"
 	"math"
 	"time"
 
 	"gonum.org/v1/plot"
-	"gonum.org/v1/plot/palette"
-	"gonum.org/v1/plot/vg"
 )
 
 // ----------------------------------------------------------------------------
@@ -44,17 +41,6 @@ type Scale struct {
 	TimeFmt string
 	// T0 is the reference time and timezone
 	T0 time.Time
-
-	// DataToUnit and UnitToData convert the data range to [0,1] and back.
-	// These functions are set up by Facet.Range. TODO: is this clever?
-	DataToUnit func(d float64) float64
-	UnitToData func(u float64) float64
-
-	// ColorMap is used if this scale is a color scale (Fill- or ColorScale).
-	ColorMap palette.ColorMap
-
-	// SizeMap maps data values to a visual length.
-	SizeMap func(x float64) vg.Length
 }
 
 // NewScale returns a new linear scale which autoscales to the actual data.
@@ -71,6 +57,27 @@ func NewScale() *Scale {
 	s.Autoscaling.Expand.Releative = 0.05
 
 	return s
+}
+
+// Map maps the intervall [s.Min, s.Max] to [0, 1].
+// Values outside of [s.Min, s.Max] are mapped to values < 0 or > 1.
+// If s's Intervall is degenerate or unset Map returns NaN.
+func (s *Scale) Map(x float64) float64 {
+	if math.IsNaN(s.Min) || math.IsNaN(s.Max) || s.Min == s.Max {
+		return math.NaN()
+	}
+
+	switch s.ScaleType {
+	case Linear, Time, Discrete:
+		return (x - s.Min) / (s.Max - s.Min)
+	case Logarithmic:
+		min, max := math.Log10(s.Min), math.Log10(s.Max)
+		math.Log10(x)
+		return (x - min) / (max - min)
+	default:
+		panic(s.ScaleType)
+	}
+
 }
 
 // UpdateData updates s to cover i.
@@ -109,22 +116,6 @@ func (s *Scale) String() string {
 	}
 	return fmt.Sprintf("Range=[%.2f:%.2f] Data=[%.2f:%.2f] %s %q",
 		s.Min, s.Max, s.Data.Min, s.Data.Max, s.ScaleType, s.Title)
-}
-
-func (s *Scale) MapColor(x float64) color.Color {
-	if s.DataToUnit == nil || s.ColorMap == nil {
-		return color.RGBA{0, 0, 0, 0} // transparent
-	}
-
-	t := s.DataToUnit(x)
-	if t < 0 {
-		t = 0
-	} else if t > 1 {
-		t = 1
-	}
-
-	col, _ := s.ColorMap.At(t)
-	return col
 }
 
 func have(x float64) bool {
@@ -197,23 +188,6 @@ func (s *Scale) autoscale() {
 		if s.MaxRange.Max < s.Max {
 			s.Max = s.MaxRange.Max
 		}
-	}
-
-}
-
-func (s *Scale) buildConversionFuncs() {
-	switch s.ScaleType {
-	case Linear, Time, Discrete:
-		s.DataToUnit = func(d float64) float64 {
-			return (d - s.Min) / (s.Max - s.Min)
-		}
-		s.UnitToData = func(u float64) float64 {
-			return u*(s.Max-s.Min) + s.Min
-		}
-	case Logarithmic:
-		panic("TODO")
-	default:
-		panic(s.ScaleType)
 	}
 
 }

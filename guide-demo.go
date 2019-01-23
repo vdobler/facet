@@ -36,7 +36,7 @@ func points(size, color, symbol bool) facet.Geom {
 		p.Color = func(i int) float64 { return xyz[i].Z }
 	}
 	if symbol {
-		p.Symbol = func(i int) float64 { return xyz[i].Z }
+		p.Symbol = func(i int) int { return int(xyz[i].Z) }
 	}
 
 	return p
@@ -62,10 +62,10 @@ func linespoints(size, color, symbol, style bool) facet.Geom {
 		lp.Color = func(i int) float64 { return float64(i) }
 	}
 	if symbol {
-		lp.Symbol = func(i int) float64 { return float64(i) }
+		lp.Symbol = func(i int) int { return i }
 	}
 	if style {
-		lp.Style = func(i int) float64 { return float64(i) }
+		lp.Style = func(i int) int { return i }
 	}
 
 	return lp
@@ -98,7 +98,7 @@ func sample(size, color, symbol, style bool) *facet.Plot {
 	rainbow.StartHue = 2.0 / 6.0
 
 	f.Scales[facet.ColorScale].ScaleType = facet.Linear
-	f.Scales[facet.ColorScale].ColorMap = rainbow
+	// f.Scales[facet.ColorScale].ColorMap = rainbow
 
 	f.Scales[facet.SymbolScale].ScaleType = facet.Linear
 
@@ -110,13 +110,12 @@ func sample(size, color, symbol, style bool) *facet.Plot {
 func main() {
 	for m := uint(0); m < 16; m++ {
 		fmt.Println()
+		size, color, symbol, style := m&0x01 != 0, m&0x02 != 0, m&0x04 != 0, m&0x08 != 0
 		fmt.Println("====== ", m, " ======")
 		img := vgimg.New(400, 300)
 		dc := draw.New(img)
 		c := dc
-		// c.Max.X, c.Max.Y = 300, 200
-		fmt.Println("Min", c.Min, "  Max", c.Max)
-		f := sample(m&0x01 != 0, m&0x02 != 0, m&0x04 != 0, m&0x08 != 0)
+		f := sample(size, color, symbol, style)
 		f.Range()
 		f.Draw(c)
 		if c.Max.X < 900 {

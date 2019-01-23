@@ -9,6 +9,7 @@ import (
 
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/palette"
+	"gonum.org/v1/plot/palette/moreland"
 	"gonum.org/v1/plot/plotutil"
 	"gonum.org/v1/plot/vg"
 	"gonum.org/v1/plot/vg/draw"
@@ -65,7 +66,7 @@ const (
 	numScales
 )
 
-var scaleName = []string{"X-Scale", "Y-Scale", "Fill-Scale", "Size-Scale", "Color-Scale", "Style-Scale", "Symbol-Scale"}
+var scaleName = []string{"X-Scale", "Y-Scale", "Fill-Scale", "Color-Scale", "Size-Scale", "Style-Scale", "Symbol-Scale"}
 
 type Geom interface {
 	Draw(p *Panel)
@@ -76,19 +77,37 @@ type Geom interface {
 
 // A Panel represents one panel in a faceted plot.
 type Panel struct {
+	Plot   *Plot
 	Geoms  []Geom
 	Canvas draw.Canvas
 	Scales [numScales]*Scale
 }
 
-// Map the data coordinate (x,y) into a canvas point.
-func (p *Panel) Map(x, y float64) vg.Point {
+// MapXY maps the data coordinate (x,y) to a canvas point.
+// It also reports whether (x,y) lies inside the range of the X and Y scales.
+func (p *Panel) MapXY(x, y float64) (vg.Point, bool) {
 	size := p.Canvas.Size()
-	xu, yu := p.Scales[XScale].DataToUnit(x), p.Scales[YScale].DataToUnit(y)
+	xs, ys := p.Scales[XScale], p.Scales[YScale]
+	xu, yu := xs.Map(x), ys.Map(y)
 	return vg.Point{
 		X: p.Canvas.Min.X + vg.Length(xu)*size.X,
 		Y: p.Canvas.Min.Y + vg.Length(yu)*size.Y,
-	}
+	}, xs.InRange(x) && ys.InRange(y)
+}
+
+// MapSize maps a data value v to a display size by calling p.Plot.MapSize.
+func (p *Panel) MapSize(v float64) vg.Length {
+	return p.Plot.MapSize(v)
+}
+
+// MapColor maps a data value v to a color by calling p.Plot.MapColor(v,false).
+func (p *Panel) MapColor(v float64) color.Color {
+	return p.Plot.MapColor(v, false)
+}
+
+// MapFill maps a data value v to a color by calling p.Plot.MapColor(v,true).
+func (p *Panel) MapFill(v float64) color.Color {
+	return p.Plot.MapColor(v, true)
 }
 
 // ----------------------------------------------------------------------------
@@ -121,6 +140,10 @@ type Plot struct {
 	// Scales contains the rest of the scales like Color, Fill, Shape, etc.
 	Scales [numScales]*Scale // Except X and Y
 
+	// ColorMap and FillMap are used to map the ColorScale and FillScale
+	// to a color
+	ColorMap, FillMap palette.ColorMap
+
 	// Style used during plotting. TODO: Keep here?
 	Style Style
 }
@@ -134,7 +157,7 @@ func NewSimplePlot() *Plot {
 // All columns share the same X-sclae and all rows share the same Y-scale
 // unless freeX or respectively freeY is specified.
 func NewPlot(rows, cols int, freeX, freeY bool) *Plot {
-	f := Plot{
+	plot := &Plot{
 		Rows:      rows,
 		Cols:      cols,
 		Panels:    make([][]*Panel, rows),
@@ -145,43 +168,55 @@ func NewPlot(rows, cols int, freeX, freeY bool) *Plot {
 		Style:     DefaultFacetStyle(12),
 	}
 
-	for r := 0; r < f.Rows; r++ {
-		f.Panels[r] = make([]*Panel, cols)
-		for c := 0; c < f.Cols; c++ {
-			f.Panels[r][c] = new(Panel)
+	for r := 0; r < plot.Rows; r++ {
+		plot.Panels[r] = make([]*Panel, cols)
+		for c := 0; c < plot.Cols; c++ {
+			plot.Panels[r][c] = new(Panel)
+			plot.Panels[r][c].Plot = plot
 		}
 	}
 
 	// The different X-scales.
 	if freeX {
-		for c := range f.XScales {
-			f.XScales[c] = NewScale()
+		for c := range plot.XScales {
+			plot.XScales[c] = NewScale()
 		}
 	} else {
 		common := NewScale()
-		for c := range f.XScales {
-			f.XScales[c] = common
+		for c := range plot.XScales {
+			plot.XScales[c] = common
 		}
 	}
 
 	// The different X-scales.
 	if freeY {
-		for r := range f.YScales {
-			f.YScales[r] = NewScale()
+		for r := range plot.YScales {
+			plot.YScales[r] = NewScale()
 		}
 	} else {
 		common := NewScale()
-		for r := range f.YScales {
-			f.YScales[r] = common
+		for r := range plot.YScales {
+			plot.YScales[r] = common
 		}
 	}
 
 	// The other scales.
-	for i := range f.Scales {
-		f.Scales[i] = NewScale()
+	for i := range plot.Scales {
+		plot.Scales[i] = NewScale()
 	}
 
-	return &f
+	// The two color maps.
+	rainbow := &Rainbow{
+		Saturation: 0.9,
+		Value:      0.9,
+		StartHue:   0,
+		HueGap:     1.0 / 6.0,
+		alpha:      1,
+	}
+	plot.ColorMap = rainbow
+	plot.FillMap = moreland.ExtendedBlackBody()
+
+	return plot
 }
 
 // Learn all data ranges for all scales for all plotters in all panels in f.
@@ -281,6 +316,7 @@ func (f *Plot) Range( /* Todo */ ) error {
 	for _, s := range f.Scales {
 		s.UpdateData(unsetInterval())
 	}
+	f.debugScales("Start of Range")
 
 	// We start by finding the all the actual, sharp data ranges.
 	// Then we apply autoscaling constraints and expand the data ranges.
@@ -293,41 +329,16 @@ func (f *Plot) Range( /* Todo */ ) error {
 	f.deDegenerateXandY()
 	f.debugScales("After de-degenerating X and Y")
 
-	f.applyToScales((*Scale).buildConversionFuncs)
-	f.debugScales("After building CF")
-
 	f.setupColorAndSizeMaps()
 
 	return nil // TODO: fail for illegal log scales, etc.
 }
 
-func (f *Plot) setupColorAndSizeMaps() {
-	ss := f.Scales[SizeScale]
-	if ss.HasData() {
-		ss.SizeMap = func(x float64) vg.Length {
-			min, max := vg.Length(0.2), vg.Length(10) // TODO: read from Style
-			u := ss.DataToUnit(x)
-			return min + vg.Length(u)*(max-min)
-		}
-	}
-
-	fs := f.Scales[FillScale]
-	if fs.HasData() {
-		if fs.ColorMap == nil {
-			fs.ColorMap = DefaultColorMap // TODO: Take from Style?
-		}
-		fs.ColorMap.SetMin(0)
-		fs.ColorMap.SetMax(1)
-	}
-
-	cs := f.Scales[ColorScale]
-	if cs.HasData() {
-		if cs.ColorMap == nil {
-			cs.ColorMap = DefaultColorMap // TODO: Take from Style?
-		}
-		cs.ColorMap.SetMin(0)
-		cs.ColorMap.SetMax(1)
-	}
+func (p *Plot) setupColorAndSizeMaps() {
+	p.ColorMap.SetMin(0)
+	p.ColorMap.SetMax(1)
+	p.FillMap.SetMin(0)
+	p.FillMap.SetMax(1)
 }
 
 func (f *Plot) needGuides() bool {
@@ -399,7 +410,6 @@ func (f *Plot) Draw(c draw.Canvas) error {
 		xticks[c] = marker.Ticks(s.Min, s.Max)
 	}
 	for r, s := range f.YScales {
-		fmt.Println(r, s.Min, s.Max, s.String())
 		yticks[r] = marker.Ticks(s.Min, s.Max)
 	}
 
@@ -426,7 +436,7 @@ func (f *Plot) Draw(c draw.Canvas) error {
 			panel.Canvas.Fill(panel.Canvas.Rectangle.Path())
 			if f.Style.Grid.Major.Color != nil {
 				for _, xtic := range xticks[col] {
-					r := panel.Map(xtic.Value, 0)
+					r, _ := panel.MapXY(xtic.Value, 0)
 					sty := f.Style.Grid.Major
 					if xtic.IsMinor() {
 						sty = f.Style.Grid.Minor
@@ -435,7 +445,7 @@ func (f *Plot) Draw(c draw.Canvas) error {
 						r.X, y0, r.X, y0-height)
 				}
 				for _, ytic := range yticks[row] {
-					r := panel.Map(0, ytic.Value)
+					r, _ := panel.MapXY(0, ytic.Value)
 					sty := f.Style.Grid.Major
 					if ytic.IsMinor() {
 						sty = f.Style.Grid.Minor
@@ -482,7 +492,7 @@ func (f *Plot) Draw(c draw.Canvas) error {
 	for c, xtick := range xticks {
 		for _, tick := range xtick {
 			panel := f.Panels[f.Rows-1][c]
-			r := panel.Map(tick.Value, 0)
+			r, _ := panel.MapXY(tick.Value, 0)
 			sty := f.Style.XAxis.MajorTick.LineStyle
 			length := f.Style.XAxis.MajorTick.Length
 			align := vg.Length(f.Style.XAxis.MajorTick.Align)
@@ -504,7 +514,7 @@ func (f *Plot) Draw(c draw.Canvas) error {
 	for r, ytick := range yticks {
 		for _, tick := range ytick {
 			panel := f.Panels[r][0]
-			r := panel.Map(0, tick.Value)
+			r, _ := panel.MapXY(0, tick.Value)
 			sty := f.Style.YAxis.MajorTick.LineStyle
 			length := f.Style.YAxis.MajorTick.Length
 			align := vg.Length(f.Style.YAxis.MajorTick.Align)
@@ -528,28 +538,45 @@ func (f *Plot) Draw(c draw.Canvas) error {
 }
 
 // MapSize maps the data value s to a display length via f's size scale.
-func (f *Plot) MapSize(s float64) vg.Length {
-	if f.Scales[SizeScale].DataToUnit == nil {
+// Values outside of of the range of the size scale are mapped to 0.
+func (p *Plot) MapSize(v float64) vg.Length {
+	max := 0.5 * p.Style.Legend.Discrete.Size
+	t := p.Scales[SizeScale].Map(v)
+	if !p.Scales[SizeScale].InRange(v) || math.IsNaN(t) {
 		return 0
 	}
-
-	max := 0.5 * f.Style.Legend.Discrete.Size
-	t := f.Scales[SizeScale].DataToUnit(s)
-	if t < 0 {
-		t = 0
-	} else if t > 1 {
-		t = 1
-	}
-
 	return max * vg.Length(t)
 }
 
-// MapColor maps the data value s to a color via one of f's color scales.
-func (f *Plot) MapColor(s float64, scale int) color.Color {
-	if scale != ColorScale && scale != FillScale {
-		panic(scale)
+// MapColor maps the data value v to a color via p's ColorMap or
+// FillMap if fill is true.
+// Values outside if the relevant scale's intervall are mapped to
+// Gray50 (which is what ggplot2 does).
+func (p *Plot) MapColor(v float64, fill bool) color.Color {
+	scale, cm := p.Scales[ColorScale], p.ColorMap
+	if fill {
+		scale, cm = p.Scales[ColorScale], p.FillMap
 	}
-	return f.Scales[scale].MapColor(s)
+	if !scale.InRange(v) {
+		return color.Gray{0x7f}
+	}
+
+	t := scale.Map(v)
+	if math.IsNaN(t) {
+		return color.Gray{0x7f}
+	}
+
+	if t < 0 || t > 1 {
+		panic(fmt.Sprintf("MapColor(%g,%t), t=%f", v, fill, t))
+	}
+	cm.SetMin(0)
+	cm.SetMax(1)
+	col, err := cm.At(t)
+	if err != nil {
+		panic(fmt.Sprintf("MapColor(%g,%t), t=%f: %v", v, fill, t, err))
+	}
+
+	return col
 }
 
 // combineGuides returns which combinations of guides need to be drawn and
@@ -558,9 +585,9 @@ func (f *Plot) combineGuides() [][]int {
 	debug.V("Combining scales")
 	combinations := [][]int{}
 	for j := FillScale; j < numScales; j++ {
-		debug.VV("scale", j, "data range", f.Scales[j].Data.Min, f.Scales[j].Data.Max, f.Scales[j].HasData())
+		debug.VV(scaleName[j], "data range", f.Scales[j].Data.Min, f.Scales[j].Data.Max, f.Scales[j].HasData())
 		if !f.Scales[j].HasData() {
-			debug.VV("scale", j, "has no data")
+			debug.VV(scaleName[j], "has no data")
 			continue // This scale has no data, so no need to combine it.
 		}
 
@@ -575,13 +602,13 @@ func (f *Plot) combineGuides() [][]int {
 			}
 			if combinable {
 				combinations[i] = append(combinations[i], j)
-				debug.VV(j, "combined into", combinations[i])
+				debug.VV(scaleName[j], "combined into", combinations[i])
 				break
 			}
 		}
 		if !combinable {
 			combinations = append(combinations, []int{j})
-			debug.VV(j, "uncombinable")
+			debug.VV(scaleName[j], "uncombinable")
 		}
 	}
 	debug.V("Combined scales", combinations)
@@ -589,8 +616,8 @@ func (f *Plot) combineGuides() [][]int {
 }
 
 // Guides for different scales are combined iff:
-func (f *Plot) canCombineScales(j, k int) bool {
-	s1, s2 := f.Scales[j], f.Scales[k]
+func (p *Plot) canCombineScales(j, k int) bool {
+	s1, s2 := p.Scales[j], p.Scales[k]
 
 	// 1. The two scales are of the same kind (linear, discrete, time, ...)
 	if s1.ScaleType != s2.ScaleType {
@@ -625,7 +652,7 @@ func (f *Plot) canCombineScales(j, k int) bool {
 	// 5. Fill and Color can be combined if they use the same ColorMap or one is empty.
 	if (j == FillScale && k == ColorScale) ||
 		(k == FillScale && j == ColorScale) {
-		if s1.ColorMap != s2.ColorMap && s1.ColorMap != nil && s2.ColorMap != nil {
+		if p.ColorMap != p.FillMap && p.ColorMap != nil && p.FillMap != nil {
 			return false
 		}
 	}
@@ -638,22 +665,22 @@ func (f *Plot) canCombineScales(j, k int) bool {
 //   A. Color guides for continuous scales drawn as a continuous rainbow.
 //   B. Discrete guides where each label is shown as a small rectangle
 //      containing lines, symbols, etc.
-func (f *Plot) drawGuides(c draw.Canvas, scales []int) vg.Length {
-	if title := f.titleFor(scales); title != "" {
-		p := vg.Point{
+func (p *Plot) drawGuides(c draw.Canvas, scales []int) vg.Length {
+	if title := p.titleFor(scales); title != "" {
+		pos := vg.Point{
 			X: c.Min.X,
 			Y: c.Max.Y,
 		}
-		c.FillText(f.Style.Legend.Title, p, title)
-		c.Max.Y -= 2 * f.Style.Legend.Title.Font.Size
+		c.FillText(p.Style.Legend.Title, pos, title)
+		c.Max.Y -= 2 * p.Style.Legend.Title.Font.Size
 	}
 
-	if f.isContinuousColorGuide(scales) {
-		s := f.Scales[scales[0]]
-		m := f.colorMapFor(scales)
-		return f.drawContinuousColorGuide(c, s, m)
+	if p.isContinuousColorGuide(scales) {
+		s := p.Scales[scales[0]]
+		m := p.colorMapFor(scales)
+		return p.drawContinuousColorGuide(c, s, m)
 	}
-	return f.drawDiscreteGuides(c, scales)
+	return p.drawDiscreteGuides(c, scales)
 }
 
 func (f *Plot) titleFor(scales []int) string {
@@ -705,24 +732,17 @@ func (DiscreteTicks) Ticks(min, max float64) []plot.Tick {
 
 // colorMapFor looks for a color map defined on one of the given scales.
 // Only Fill- and ColorScales are inspected.
-func (f *Plot) colorMapFor(scales []int) palette.ColorMap {
+func (p *Plot) colorMapFor(scales []int) palette.ColorMap {
 	for _, s := range scales {
 		if s != FillScale && s != ColorScale {
 			continue
 		}
-		if cm := f.Scales[s].ColorMap; cm != nil {
-			cm.SetMin(0)
-			cm.SetMax(1)
-			return cm
+		if s == ColorScale {
+			return p.ColorMap
 		}
+		return p.FillMap
 	}
-	// TODO: read default from style?
-	cm := &Rainbow{Saturation: 0.9, Value: 0.9}
-	cm.SetAlpha(1)
-	cm.HueGap = 1.0 / 6.0
-	cm.SetMin(0)
-	cm.SetMax(1)
-	return cm
+	return p.FillMap // TODO: panic ??
 }
 
 func (f *Plot) SizeMap() func(x float64) vg.Length {
@@ -749,29 +769,29 @@ func (f *Plot) isContinuousColorGuide(scales []int) bool {
 	return true
 }
 
-func (f *Plot) drawDiscreteGuides(c draw.Canvas, scales []int) vg.Length {
+func (plot *Plot) drawDiscreteGuides(c draw.Canvas, scales []int) vg.Length {
 	debug.V("Drawing descrete scales", scales)
 	showFill := containsInt(scales, FillScale)
 	showSize := containsInt(scales, SizeScale)
 	showColor := containsInt(scales, ColorScale)
 	showStyle := containsInt(scales, StyleScale)
 	showSymbol := containsInt(scales, SymbolScale)
-	scale := f.Scales[scales[0]] // all have same range, so take the first
-	ticker := f.tickerFor(scales)
+	scale := plot.Scales[scales[0]] // all have same range, so take the first
+	ticker := plot.tickerFor(scales)
 	ticks := ticker.Ticks(scale.Min, scale.Max)
 
-	boxSize, pad := f.Style.Legend.Discrete.Size, vg.Length(3)
+	boxSize, pad := plot.Style.Legend.Discrete.Size, vg.Length(3)
 	r := vg.Rectangle{
 		Min: vg.Point{c.Min.X, c.Max.Y - boxSize},
 		Max: vg.Point{c.Min.X + boxSize, c.Max.Y},
 	}
 
-	labelSty := f.Style.Legend.Label
+	labelSty := plot.Style.Legend.Label
 	labelSty.XAlign = draw.XLeft
 
 	var pal []color.Color
 	if showColor || showFill {
-		cm := f.colorMapFor(scales)
+		cm := plot.colorMapFor(scales)
 		pal = cm.Palette(len(ticks)).Colors()
 	}
 
@@ -796,7 +816,7 @@ func (f *Plot) drawDiscreteGuides(c draw.Canvas, scales []int) vg.Length {
 			col = pal[i]
 		}
 		if showSize {
-			size = f.Scales[SizeScale].SizeMap(tick.Value)
+			size = plot.MapSize(tick.Value)
 		}
 		if showSymbol {
 			shape = plotutil.Shape(i)
@@ -842,21 +862,25 @@ func containsInt(s []int, v int) bool {
 	return false
 }
 
-func (f *Plot) drawDiscreteColorGuide(c draw.Canvas, scale *Scale) vg.Length {
+func (p *Plot) drawDiscreteColorGuide(c draw.Canvas, fill bool) vg.Length {
+	scale := p.Scales[ColorScale]
+	cm := p.ColorMap
+	if fill {
+		scale = p.Scales[FillScale]
+		cm = p.FillMap
+	}
 	a, e := int(scale.Data.Min), int(scale.Data.Max)
-	n := e - a + 1
-	size, pad := f.Style.Legend.Discrete.Size, vg.Length(3)
+	size, pad := p.Style.Legend.Discrete.Size, vg.Length(3)
 	r := vg.Rectangle{
 		Min: vg.Point{c.Min.X, c.Max.Y - size},
 		Max: vg.Point{c.Min.X + size, c.Max.Y},
 	}
 
-	labelSty := f.Style.Legend.Label
+	labelSty := p.Style.Legend.Label
 	labelSty.XAlign = draw.XLeft
 
-	pal := scale.ColorMap.Palette(n).Colors()
 	for level := e; level >= a; level-- {
-		col := pal[level-a]
+		col, _ := cm.At(scale.Map(float64(level)))
 		c.SetColor(col)
 		c.Fill(r.Path())
 		c.SetColor(color.Black)
@@ -871,11 +895,11 @@ func (f *Plot) drawDiscreteColorGuide(c draw.Canvas, scale *Scale) vg.Length {
 	return r.Min.Y + size - 2*pad
 }
 
-func (f *Plot) drawContinuousColorGuide(c draw.Canvas, scale *Scale, colMap palette.ColorMap) vg.Length {
-	width := f.Style.Legend.Continuous.Size
-	height := f.Style.Legend.Continuous.Length
+func (p *Plot) drawContinuousColorGuide(c draw.Canvas, scale *Scale, colMap palette.ColorMap) vg.Length {
+	width := p.Style.Legend.Continuous.Size
+	height := p.Style.Legend.Continuous.Length
 	scale2Canvas := func(x float64) vg.Length {
-		t := scale.DataToUnit(x)
+		t := scale.Map(x)
 		return c.Max.Y - height + height*vg.Length(t)
 	}
 	rect := vg.Rectangle{
@@ -901,18 +925,18 @@ func (f *Plot) drawContinuousColorGuide(c draw.Canvas, scale *Scale, colMap pale
 		if tick.IsMinor() {
 			continue
 		}
-		sty := f.Style.Legend.Continuous.Tick.LineStyle
-		length := f.Style.Legend.Continuous.Tick.Length
-		align := vg.Length(f.Style.Legend.Continuous.Tick.Align)
+		sty := p.Style.Legend.Continuous.Tick.LineStyle
+		length := p.Style.Legend.Continuous.Tick.Length
+		align := vg.Length(p.Style.Legend.Continuous.Tick.Align)
 		y := scale2Canvas(tick.Value)
 		x := rect.Max.X
 		c.StrokeLine2(sty, x-align*length, y, x+(1-align)*length, y)
 
-		if f.Style.Legend.Continuous.Tick.Mirror {
+		if p.Style.Legend.Continuous.Tick.Mirror {
 			x := rect.Min.X
 			c.StrokeLine2(sty, x+(align-1)*length, y, x+align*length, y)
 		}
-		tsty := f.Style.Legend.Label
+		tsty := p.Style.Legend.Label
 		tsty.XAlign = draw.XLeft
 		c.FillText(tsty,
 			vg.Point{x + (1-align)*length, y}, " "+tick.Label)

@@ -39,10 +39,10 @@ func main() {
 	// f.Scales[facet.FillScale].ColorMap = moreland.Kindlmann()
 
 	f.Scales[facet.SizeScale].Title = "Size"
-	f.Scales[facet.StyleScale].Title = "Style"
+	f.Scales[facet.StrokeScale].Title = "Stroke"
 
-	f.Scales[facet.SymbolScale].Title = "Symbol"
-	f.Scales[facet.SymbolScale].ScaleType = facet.Discrete
+	f.Scales[facet.ShapeScale].Title = "Shape"
+	f.Scales[facet.ShapeScale].ScaleType = facet.Discrete
 
 	// Rectangles
 	xyuv := data.XYUVs{
@@ -107,7 +107,7 @@ func main() {
 			Color: func(i int) float64 {
 				return float64(i)
 			},
-			Style: func(i int) int {
+			Stroke: func(i int) int {
 				return i
 			},
 			Size: func(i int) float64 {

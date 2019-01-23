@@ -36,7 +36,7 @@ func points(size, color, symbol bool) facet.Geom {
 		p.Color = func(i int) float64 { return xyz[i].Z }
 	}
 	if symbol {
-		p.Symbol = func(i int) int { return int(xyz[i].Z) }
+		p.Shape = func(i int) int { return int(xyz[i].Z) }
 	}
 
 	return p
@@ -62,10 +62,10 @@ func linespoints(size, color, symbol, style bool) facet.Geom {
 		lp.Color = func(i int) float64 { return float64(i) }
 	}
 	if symbol {
-		lp.Symbol = func(i int) int { return i }
+		lp.Shape = func(i int) int { return i }
 	}
 	if style {
-		lp.Style = func(i int) int { return i }
+		lp.Stroke = func(i int) int { return i }
 	}
 
 	return lp
@@ -100,7 +100,7 @@ func sample(size, color, symbol, style bool) *facet.Plot {
 	f.Scales[facet.ColorScale].ScaleType = facet.Linear
 	// f.Scales[facet.ColorScale].ColorMap = rainbow
 
-	f.Scales[facet.SymbolScale].ScaleType = facet.Linear
+	f.Scales[facet.ShapeScale].ScaleType = facet.Linear
 
 	f.Panels[0][0].Geoms = []facet.Geom{linespoints(size, color, symbol, style)}
 

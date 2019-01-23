@@ -58,15 +58,22 @@ func NewDataRanges() DataRanges {
 const (
 	XScale int = iota
 	YScale
-	FillScale
 	ColorScale
+	FillScale
+	ShapeScale
 	SizeScale
-	StyleScale
-	SymbolScale
+	StrokeScale
 	numScales
 )
 
-var scaleName = []string{"X-Scale", "Y-Scale", "Fill-Scale", "Color-Scale", "Size-Scale", "Style-Scale", "Symbol-Scale"}
+var scaleName = []string{
+	"X-Scale",
+	"Y-Scale",
+	"Color-Scale",
+	"Fill-Scale",
+	"Shape-Scale",
+	"Size-Scale",
+	"Stroke-Scale"}
 
 type Geom interface {
 	Draw(p *Panel)
@@ -636,7 +643,7 @@ func (p *Plot) canCombineScales(j, k int) bool {
 		return false
 	}
 
-	// 4. The scales must use the same Tickes.
+	// 4. The scales must use the same Ticker.
 	if s1.Ticker != nil && s2.Ticker != nil && s1.Ticker != s2.Ticker {
 		t1, t2 := s1.Ticker.Ticks(s1.Min, s1.Max), s2.Ticker.Ticks(s2.Min, s2.Max)
 		if len(t1) != len(t2) {
@@ -662,7 +669,7 @@ func (p *Plot) canCombineScales(j, k int) bool {
 }
 
 // There are two major types of guides:
-//   A. Color guides for continuous scales drawn as a continuous rainbow.
+//   A. Color guides for continuous scales drawn as a continuous "rainbow".
 //   B. Discrete guides where each label is shown as a small rectangle
 //      containing lines, symbols, etc.
 func (p *Plot) drawGuides(c draw.Canvas, scales []int) vg.Length {
@@ -704,7 +711,7 @@ func (f *Plot) tickerFor(scales []int) plot.Ticker {
 			return f.Scales[s].Ticker
 		}
 	}
-	if containsInt(scales, StyleScale) || containsInt(scales, SymbolScale) {
+	if containsInt(scales, StrokeScale) || containsInt(scales, ShapeScale) {
 		return DiscreteTicks{}
 
 	}
@@ -774,8 +781,8 @@ func (plot *Plot) drawDiscreteGuides(c draw.Canvas, scales []int) vg.Length {
 	showFill := containsInt(scales, FillScale)
 	showSize := containsInt(scales, SizeScale)
 	showColor := containsInt(scales, ColorScale)
-	showStyle := containsInt(scales, StyleScale)
-	showSymbol := containsInt(scales, SymbolScale)
+	showStyle := containsInt(scales, StrokeScale)
+	showSymbol := containsInt(scales, ShapeScale)
 	scale := plot.Scales[scales[0]] // all have same range, so take the first
 	ticker := plot.tickerFor(scales)
 	ticks := ticker.Ticks(scale.Min, scale.Max)

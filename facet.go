@@ -58,6 +58,7 @@ func NewDataRanges() DataRanges {
 const (
 	XScale int = iota
 	YScale
+	AlphaScale
 	ColorScale
 	FillScale
 	ShapeScale
@@ -69,6 +70,7 @@ const (
 var scaleName = []string{
 	"X-Scale",
 	"Y-Scale",
+	"Alpha-Scale",
 	"Color-Scale",
 	"Fill-Scale",
 	"Shape-Scale",
@@ -591,7 +593,7 @@ func (p *Plot) MapColor(v float64, fill bool) color.Color {
 func (f *Plot) combineGuides() [][]int {
 	debug.V("Combining scales")
 	combinations := [][]int{}
-	for j := FillScale; j < numScales; j++ {
+	for j := AlphaScale; j < numScales; j++ {
 		debug.VV(scaleName[j], "data range", f.Scales[j].Data.Min, f.Scales[j].Data.Max, f.Scales[j].HasData())
 		if !f.Scales[j].HasData() {
 			debug.VV(scaleName[j], "has no data")
@@ -778,12 +780,13 @@ func (f *Plot) isContinuousColorGuide(scales []int) bool {
 
 func (plot *Plot) drawDiscreteGuides(c draw.Canvas, scales []int) vg.Length {
 	debug.V("Drawing descrete scales", scales)
-	showFill := containsInt(scales, FillScale)
-	showSize := containsInt(scales, SizeScale)
+	showAlpha := containsInt(scales, AlphaScale)
 	showColor := containsInt(scales, ColorScale)
-	showStyle := containsInt(scales, StrokeScale)
-	showSymbol := containsInt(scales, ShapeScale)
-	scale := plot.Scales[scales[0]] // all have same range, so take the first
+	showFill := containsInt(scales, FillScale)
+	showShape := containsInt(scales, ShapeScale)
+	showSize := containsInt(scales, SizeScale)
+	showStroke := containsInt(scales, StrokeScale)
+	scale := plot.Scales[scales[0]] // all have same range (otherwise they would not have been combined), so take the first
 	ticker := plot.tickerFor(scales)
 	ticks := ticker.Ticks(scale.Min, scale.Max)
 
@@ -803,7 +806,7 @@ func (plot *Plot) drawDiscreteGuides(c draw.Canvas, scales []int) vg.Length {
 	}
 
 	shape := draw.GlyphDrawer(draw.CircleGlyph{})
-	col := color.Color(color.Black)
+	basecolor := plot.Style.GeomDefault.Color
 	size := boxSize / 5
 
 	for i, tick := range ticks {
@@ -818,38 +821,50 @@ func (plot *Plot) drawDiscreteGuides(c draw.Canvas, scales []int) vg.Length {
 
 		center := vg.Point{X: (r.Min.X + r.Max.X) / 2, Y: (r.Min.Y + r.Max.Y) / 2}
 
+		col := basecolor
 		// The actual indicators.
 		if pal != nil {
 			col = pal[i]
 		}
+		if showAlpha {
+			r, g, b, a := col.RGBA()
+			alpha := plot.Scales[AlphaScale].Map(tick.Value)
+			fmt.Println("%%%%  ", r, g, b, alpha)
+			col = color.NRGBA64{uint16(r), uint16(g), uint16(b), uint16(float64(a) * alpha)}
+			fmt.Println("%%%%     ", col)
+		}
+
 		if showSize {
 			size = plot.MapSize(tick.Value)
 		}
-		if showSymbol {
+		if showShape {
 			shape = plotutil.Shape(i)
 		}
 
-		if showStyle {
+		if showStroke {
 			lsty := draw.LineStyle{
 				Color:  col,
 				Width:  1,
 				Dashes: plotutil.Dashes(i),
 			}
-			c.StrokeLine2(lsty, c.Min.X, center.Y, c.Min.X+boxSize, center.Y)
+			c.StrokeLine2(lsty, r.Min.X, r.Min.Y, r.Max.X, r.Max.Y)
 		}
 
-		gsty := draw.GlyphStyle{
-			Color:  col,
-			Radius: size,
-			Shape:  shape,
+		// Do not draw the shape if not needed.
+		if showShape || showFill || showSize || showColor || (showAlpha && !showStroke) {
+			gsty := draw.GlyphStyle{
+				Color:  col,
+				Radius: size,
+				Shape:  shape,
+			}
+			c.DrawGlyph(gsty, center)
 		}
-		c.DrawGlyph(gsty, center)
-
 		// The label.
 		c.FillText(labelSty, vg.Point{r.Max.X + pad, (r.Min.Y + r.Max.Y) / 2}, tick.Label)
 
 		// The box border
 		c.SetColor(color.Black)
+		c.SetLineDash(nil, 0)
 		c.SetLineWidth(vg.Length(0.3))
 		c.Stroke(r.Path())
 

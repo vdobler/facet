@@ -42,7 +42,7 @@ func points(size, color, symbol bool) facet.Geom {
 	return p
 }
 
-func linespoints(size, color, symbol, style bool) facet.Geom {
+func linespoints(alpha, size, color, symbol, style bool) facet.Geom {
 	lp := geom.LinesPoints{
 		XY: make([]plotter.XYer, len(xyz)),
 	}
@@ -55,6 +55,9 @@ func linespoints(size, color, symbol, style bool) facet.Geom {
 		}
 	}
 
+	if alpha {
+		lp.Alpha = func(i int) float64 { return float64(i) }
+	}
 	if size {
 		lp.Size = func(i int) float64 { return float64(i) }
 	}
@@ -71,10 +74,13 @@ func linespoints(size, color, symbol, style bool) facet.Geom {
 	return lp
 }
 
-func sample(size, color, symbol, style bool) *facet.Plot {
+func sample(alpha, size, color, symbol, style bool) *facet.Plot {
 	f := facet.NewSimplePlot()
 
 	features := []string{}
+	if alpha {
+		features = append(features, "Alpha")
+	}
 	if size {
 		features = append(features, "Size")
 	}
@@ -102,20 +108,20 @@ func sample(size, color, symbol, style bool) *facet.Plot {
 
 	f.Scales[facet.ShapeScale].ScaleType = facet.Linear
 
-	f.Panels[0][0].Geoms = []facet.Geom{linespoints(size, color, symbol, style)}
+	f.Panels[0][0].Geoms = []facet.Geom{linespoints(alpha, size, color, symbol, style)}
 
 	return f
 }
 
 func main() {
-	for m := uint(0); m < 16; m++ {
+	for m := uint(0); m < 32; m++ {
 		fmt.Println()
-		size, color, symbol, style := m&0x01 != 0, m&0x02 != 0, m&0x04 != 0, m&0x08 != 0
+		alpha, size, color, symbol, style := m&0x01 != 0, m&0x02 != 0, m&0x04 != 0, m&0x08 != 0, m&0x10 != 0
 		fmt.Println("====== ", m, " ======")
 		img := vgimg.New(400, 300)
 		dc := draw.New(img)
 		c := dc
-		f := sample(size, color, symbol, style)
+		f := sample(alpha, size, color, symbol, style)
 		f.Range()
 		f.Draw(c)
 		if c.Max.X < 900 {

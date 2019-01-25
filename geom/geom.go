@@ -26,58 +26,80 @@ import (
 	"gonum.org/v1/plot/vg/draw"
 )
 
-// Aestetic is a function mappinge a certain data point to an aestehtic.
-type Aesthetic func(i int) float64
+// ----------------------------------------------------------------------------
+// Point
 
-// DiscreteAestetic is a function mappinge a certain data point to a discrete
-// aesthetic like Shape or Stroke.
-type DiscreteAesthetic func(i int) int
+// Point draws points / symbols.
+type Point struct {
+	XY plotter.XYer
 
-// UpdateAestheticsRanges is a helper to update the data ranges dr based on
-// the non-nil aesthetics functions evaluated for all n data points.
-func UpdateAestheticsRanges(dr *facet.DataRanges, n int,
-	color Aesthetic,
-	fill Aesthetic,
-	shape DiscreteAesthetic,
-	size Aesthetic,
-	stroke DiscreteAesthetic) {
+	Alpha Aesthetic
+	Color Aesthetic
+	Shape DiscreteAesthetic
+	Size  Aesthetic
 
-	for i := 0; i < n; i++ {
-		if color != nil {
-			dr[facet.ColorScale].Update(color(i))
+	Default draw.GlyphStyle
+}
+
+func (p Point) Draw(panel *facet.Panel) {
+	baseColor := p.Default.Color
+	if baseColor == nil {
+		baseColor = panel.Plot.Style.GeomDefault.Color
+	}
+
+	size := p.Default.Radius
+	if size == 0 {
+		size = panel.Plot.Style.GeomDefault.Size
+	}
+
+	shape := p.Default.Shape
+	if shape == nil {
+		shape = draw.GlyphDrawer(draw.CircleGlyph{})
+	}
+
+	for i := 0; i < p.XY.Len(); i++ {
+		x, y := p.XY.XY(i)
+		center, ok := panel.MapXY(x, y)
+		if !ok {
+			continue // TODO: should notify Plot/Panel about dropped data point.
 		}
-		if fill != nil {
-			dr[facet.FillScale].Update(fill(i))
+
+		col, ok := determineColor(baseColor, panel, i, p.Color, p.Alpha)
+		if !ok {
+			continue
 		}
-		if shape != nil {
-			dr[facet.ShapeScale].Update(float64(shape(i)))
+
+		if p.Shape != nil {
+			shape = plotutil.Shape(p.Shape(i))
 		}
-		if size != nil {
-			dr[facet.SizeScale].Update(size(i))
+
+		if p.Size != nil {
+			size = panel.MapSize(p.Size(i))
+			if size == 0 {
+				continue
+			}
 		}
-		if stroke != nil {
-			dr[facet.StrokeScale].Update(float64(stroke(i))) // TODO: StrokeScale should be discrete from the start
+
+		sty := draw.GlyphStyle{
+			Color:  col,
+			Radius: size,
+			Shape:  shape,
 		}
+		panel.Canvas.DrawGlyph(sty, center)
 	}
 }
 
-// BoxStyle combines a line style (for the border with a fill color for
-// the interior of a geom.  TODO: add the rest like size, symbol too?
-type BoxStyle struct {
-	Fill   color.Color
-	Border draw.LineStyle
-}
+func (p Point) AllDataRanges() facet.DataRanges {
+	dr := facet.NewDataRanges()
+	xmin, xmax, ymin, ymax := plotter.XYRange(p.XY)
+	dr[facet.XScale].Update(xmin)
+	dr[facet.XScale].Update(xmax)
+	dr[facet.YScale].Update(ymin)
+	dr[facet.YScale].Update(ymax)
 
-// CanonicRectangle returns the canonical form of r, i.e. its Min points
-// having smaller coordinates than its Max point.
-func CanonicRectangle(r vg.Rectangle) vg.Rectangle {
-	if r.Min.X > r.Max.X {
-		r.Min.X, r.Max.X = r.Max.X, r.Min.X
-	}
-	if r.Min.Y > r.Max.Y {
-		r.Min.Y, r.Max.Y = r.Max.Y, r.Min.Y
-	}
-	return r
+	UpdateAestheticsRanges(&dr, p.XY.Len(), p.Alpha, p.Color, nil, p.Shape, p.Size, nil)
+
+	return dr
 }
 
 // ----------------------------------------------------------------------------
@@ -88,10 +110,13 @@ func CanonicRectangle(r vg.Rectangle) vg.Rectangle {
 // the rectangle then this border is drawn inside the rectangle given by the
 // coordinates.
 type Rectangle struct {
-	XYUV        data.XYUVer
-	Color, Fill Aesthetic
-	Size, Alpha Aesthetic
-	Stroke      DiscreteAesthetic
+	XYUV data.XYUVer
+
+	Alpha  Aesthetic
+	Color  Aesthetic
+	Fill   Aesthetic
+	Size   Aesthetic
+	Stroke DiscreteAesthetic
 
 	Default BoxStyle
 }
@@ -168,7 +193,7 @@ func (r Rectangle) AllDataRanges() facet.DataRanges {
 	xmin, xmax, ymin, ymax, umin, umax, vmin, vmax := data.XYUVRange(r.XYUV)
 	dr[facet.XScale].Update(xmin, xmax, umin, umax)
 	dr[facet.YScale].Update(ymin, ymax, vmin, vmax)
-	UpdateAestheticsRanges(&dr, r.XYUV.Len(), r.Color, r.Fill, nil, r.Size, r.Stroke)
+	UpdateAestheticsRanges(&dr, r.XYUV.Len(), r.Alpha, r.Color, r.Fill, nil, r.Size, r.Stroke)
 	return dr
 }
 
@@ -177,9 +202,13 @@ func (r Rectangle) AllDataRanges() facet.DataRanges {
 
 // Bar draws rectangles standing/hanging from y=0.
 type Bar struct {
-	XY                       plotter.XYer
-	Alpha, Color, Fill, Size Aesthetic
-	Stroke                   DiscreteAesthetic
+	XY plotter.XYer
+
+	Alpha  Aesthetic
+	Color  Aesthetic
+	Fill   Aesthetic
+	Size   Aesthetic
+	Stroke DiscreteAesthetic
 
 	Position string  // "stack" (default), "dogde" or "fill"
 	GGap     float64 // Gap between groups as fraction of sample distance.
@@ -429,85 +458,12 @@ func (bg *BarGroups) recalc() {
 }
 
 // ----------------------------------------------------------------------------
-// Point
-
-// Point draws points / symbols.
-type Point struct {
-	XY    plotter.XYer
-	Alpha Aesthetic
-	Color Aesthetic
-	Shape DiscreteAesthetic
-	Size  Aesthetic
-
-	Default draw.GlyphStyle
-}
-
-func (p Point) Draw(panel *facet.Panel) {
-	dye := p.Default.Color
-	if dye == nil {
-		dye = panel.Plot.Style.GeomDefault.Color
-	}
-
-	size := p.Default.Radius
-	if size == 0 {
-		size = panel.Plot.Style.GeomDefault.Size
-	}
-
-	shape := p.Default.Shape
-	if shape == nil {
-		shape = draw.GlyphDrawer(draw.CircleGlyph{})
-	}
-
-	for i := 0; i < p.XY.Len(); i++ {
-		x, y := p.XY.XY(i)
-		center, ok := panel.MapXY(x, y)
-		if !ok {
-			continue // TODO: should notify Plot/Panel about dropped data point.
-		}
-
-		if p.Size != nil {
-			size = panel.MapSize(p.Size(i))
-			if size == 0 {
-				continue
-			}
-		}
-
-		if p.Shape != nil {
-			shape = plotutil.Shape(p.Shape(i))
-		}
-
-		if p.Color != nil {
-			dye = panel.MapColor(p.Color(i))
-		}
-
-		sty := draw.GlyphStyle{
-			Color:  dye,
-			Radius: size,
-			Shape:  shape,
-		}
-		panel.Canvas.DrawGlyph(sty, center)
-	}
-}
-
-func (p Point) AllDataRanges() facet.DataRanges {
-	dr := facet.NewDataRanges()
-	xmin, xmax, ymin, ymax := plotter.XYRange(p.XY)
-	dr[facet.XScale].Update(xmin)
-	dr[facet.XScale].Update(xmax)
-	dr[facet.YScale].Update(ymin)
-	dr[facet.YScale].Update(ymax)
-
-	UpdateAestheticsRanges(&dr, p.XY.Len(), p.Color, nil, p.Shape, p.Size, nil)
-
-	return dr
-}
-
-// ----------------------------------------------------------------------------
 // Lines
 
 // Line draws
 type Lines struct {
-	XY     []plotter.XYer
+	XY []plotter.XYer
+
 	Alpha  Aesthetic
 	Color  Aesthetic
 	Size   Aesthetic
@@ -517,9 +473,9 @@ type Lines struct {
 }
 
 func (l Lines) Draw(panel *facet.Panel) {
-	dye := l.Default.Color
-	if dye == nil {
-		dye = panel.Plot.Style.GeomDefault.Color
+	baseColor := l.Default.Color
+	if baseColor == nil {
+		baseColor = panel.Plot.Style.GeomDefault.Color
 	}
 
 	width := l.Default.Width
@@ -536,8 +492,9 @@ func (l Lines) Draw(panel *facet.Panel) {
 			ps[i], _ = panel.MapXY(xy.XY(i)) // Clipping done below.
 		}
 
-		if l.Color != nil {
-			dye = panel.MapColor(l.Color(g))
+		col, ok := determineColor(baseColor, panel, g, l.Color, l.Alpha)
+		if !ok {
+			continue // TODO: report dropping of data to Plot/Panel
 		}
 		if l.Stroke != nil {
 			dashes = plotutil.Dashes(l.Stroke(g))
@@ -547,7 +504,7 @@ func (l Lines) Draw(panel *facet.Panel) {
 		}
 
 		sty := draw.LineStyle{
-			Color:  dye,
+			Color:  col,
 			Width:  width,
 			Dashes: dashes,
 		}
@@ -564,7 +521,7 @@ func (l Lines) AllDataRanges() facet.DataRanges {
 		dr[facet.XScale].Update(xmax)
 		dr[facet.YScale].Update(ymin)
 		dr[facet.YScale].Update(ymax)
-		UpdateAestheticsRanges(&dr, xy.Len(), l.Color, nil, nil, l.Size, l.Stroke)
+		UpdateAestheticsRanges(&dr, xy.Len(), l.Alpha, l.Color, nil, nil, l.Size, l.Stroke)
 	}
 	return dr
 }
@@ -574,7 +531,8 @@ func (l Lines) AllDataRanges() facet.DataRanges {
 
 // LinesPoints draws Points connected by lines
 type LinesPoints struct {
-	XY     []plotter.XYer
+	XY []plotter.XYer
+
 	Alpha  Aesthetic
 	Color  Aesthetic
 	Shape  DiscreteAesthetic // of Points
@@ -590,11 +548,14 @@ func (lp LinesPoints) Draw(panel *facet.Panel) {
 		XY:      lp.XY,
 		Default: lp.LineDefault,
 	}
+	if lp.Alpha != nil {
+		lines.Alpha = lp.Alpha
+	}
 	if lp.Color != nil {
-		lines.Color = func(i int) float64 { return lp.Color(i) }
+		lines.Color = lp.Color
 	}
 	if lp.Stroke != nil {
-		lines.Stroke = func(i int) int { return lp.Stroke(i) }
+		lines.Stroke = lp.Stroke
 	}
 	lines.Draw(panel)
 
@@ -602,6 +563,9 @@ func (lp LinesPoints) Draw(panel *facet.Panel) {
 		points := Point{
 			XY:      xy,
 			Default: lp.PointDefault,
+		}
+		if lp.Alpha != nil {
+			points.Alpha = func(i int) float64 { return lp.Alpha(g) }
 		}
 		if lp.Color != nil {
 			points.Color = func(i int) float64 { return lp.Color(g) }
@@ -625,7 +589,7 @@ func (lp LinesPoints) AllDataRanges() facet.DataRanges {
 			dr[facet.YScale].Update(y)
 		}
 	}
-	UpdateAestheticsRanges(&dr, len(lp.XY), lp.Color, nil, lp.Shape, lp.Size, lp.Stroke)
+	UpdateAestheticsRanges(&dr, len(lp.XY), lp.Alpha, lp.Color, nil, lp.Shape, lp.Size, lp.Stroke)
 
 	return dr
 }
@@ -638,11 +602,14 @@ func (lp LinesPoints) AllDataRanges() facet.DataRanges {
 // the rectangle then this border is drawn inside the rectangle given by the
 // coordinates.
 type Boxplot struct {
-	Boxplot     data.Boxplotter
-	Color, Fill Aesthetic
-	Size, Alpha Aesthetic
-	Stroke      DiscreteAesthetic
-	Shape       DiscreteAesthetic
+	Boxplot data.Boxplotter
+
+	Alpha  Aesthetic
+	Color  Aesthetic
+	Fill   Aesthetic
+	Shape  DiscreteAesthetic
+	Size   Aesthetic
+	Stroke DiscreteAesthetic
 
 	Position     string
 	Default      BoxStyle
@@ -671,7 +638,6 @@ func (b Boxplot) Draw(panel *facet.Panel) {
 
 	for i := 0; i < b.Boxplot.Len(); i++ {
 		x, min, q1, median, q3, max, out := b.Boxplot.Boxplot(i)
-		// TODO: box width and dodging
 
 		// The box.
 		center, halfwidth := g.Width(x, i)
@@ -703,21 +669,27 @@ func (b Boxplot) Draw(panel *facet.Panel) {
 		}
 	}
 	rect := Rectangle{
-		XYUV:   XYUV,
-		Color:  b.Color,
-		Fill:   b.Fill,
-		Size:   b.Size,
-		Stroke: b.Stroke,
-
+		XYUV:    XYUV,
+		Alpha:   b.Alpha,
+		Color:   b.Color,
+		Fill:    b.Fill,
+		Size:    b.Size,
+		Stroke:  b.Stroke,
 		Default: b.Default,
 	}
 	line := Lines{
-		XY: XY,
-
+		XY:      XY,
+		Alpha:   b.Alpha,
+		Color:   b.Color,
+		Size:    b.Size,
+		Stroke:  b.Stroke,
 		Default: b.Default.Border,
 	}
 	point := Point{
 		XY:      plotter.XYValues{XYZ},
+		Alpha:   b.Alpha,
+		Color:   b.Color,
+		Size:    b.Size,
 		Default: b.DefaultPoint,
 	}
 	if b.Color != nil {
@@ -744,6 +716,6 @@ func (b Boxplot) AllDataRanges() facet.DataRanges {
 	xmin, xmax := g.XRange()
 	dr[facet.XScale].Update(xmin, xmax)
 
-	UpdateAestheticsRanges(&dr, b.Boxplot.Len(), b.Color, b.Fill, nil, b.Size, b.Stroke)
+	UpdateAestheticsRanges(&dr, b.Boxplot.Len(), b.Alpha, b.Color, b.Fill, nil, b.Size, b.Stroke)
 	return dr
 }

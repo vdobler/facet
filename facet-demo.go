@@ -128,6 +128,20 @@ func main() {
 			Stroke: func(i int) int { return 3 },
 			Size:   func(i int) float64 { return 6.0 },
 		},
+		geom.Text{
+			XYText: data.XYTexts{
+				{5, 5, "Foo"},
+				{7, 15, "Bar"},
+				{3, 17, "Wok"},
+				{8, 2, "Qux"},
+			},
+			Color: func(i int) float64 { return float64(i) * 4 },
+			Size:  func(i int) float64 { return float64(i)*5 + 5 },
+			Default: draw.TextStyle{
+				XAlign: draw.XCenter,
+				YAlign: draw.YCenter,
+			},
+		},
 	}
 
 	// Bar plot

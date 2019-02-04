@@ -847,3 +847,67 @@ func (b Boxplot) AllDataRanges() facet.DataRanges {
 	UpdateAestheticsRanges(&dr, b.Boxplot.Len(), b.Alpha, b.Color, b.Fill, nil, b.Size, b.Stroke)
 	return dr
 }
+
+// ----------------------------------------------------------------------------
+// Text
+
+// Text draws points / symbols.
+type Text struct {
+	XYText data.XYTexter
+
+	Alpha Aesthetic
+	Color Aesthetic
+	Size  Aesthetic
+
+	Default draw.TextStyle
+}
+
+func (t Text) Draw(panel *facet.Panel) {
+	baseColor := t.Default.Color
+	if baseColor == nil {
+		baseColor = panel.Plot.Style.GeomDefault.Color
+	}
+
+	font := panel.Plot.Style.XAxis.Title.Font
+	if t.Default.Font != (vg.Font{}) {
+		font = t.Default.Font
+	}
+	size := font.Size
+
+	for i := 0; i < t.XYText.Len(); i++ {
+		x, y, text := t.XYText.XYText(i)
+		center, ok := panel.MapXY(x, y)
+		if !ok {
+			continue // TODO: should notify Plot/Panel about dropped data point.
+		}
+
+		col, ok := determineColor(baseColor, panel, i, t.Color, t.Alpha)
+		if !ok {
+			continue
+		}
+
+		if t.Size != nil {
+			size = panel.MapSize(t.Size(i))
+			if size == 0 {
+				continue
+			}
+		}
+
+		sty := t.Default
+		sty.Color = col
+		sty.Font = font
+		sty.Font.Size = 2 * size
+		panel.Canvas.FillText(sty, center, text)
+	}
+}
+
+func (t Text) AllDataRanges() facet.DataRanges {
+	dr := facet.NewDataRanges()
+	for i := 0; i < t.XYText.Len(); i++ {
+		x, y, _ := t.XYText.XYText(i)
+		dr[facet.XScale].Update(x)
+		dr[facet.YScale].Update(y)
+	}
+	UpdateAestheticsRanges(&dr, t.XYText.Len(), t.Alpha, t.Color, nil, nil, t.Size, nil)
+	return dr
+}

@@ -39,6 +39,27 @@ func (d XYUVs) Len() int                        { return len(d) }
 func (d XYUVs) XYUV(i int) (x, y, u, v float64) { return d[i].X, d[i].Y, d[i].U, d[i].V }
 
 // ----------------------------------------------------------------------------
+// Text
+
+// XYText wraps the Len and XYText methods.
+type XYTexter interface {
+	// Len returns the number of data points.
+	Len() int
+
+	// XYText returns a coordinate (x, y) and a string.
+	XYText(int) (x, y float64, t string)
+}
+
+// XYTexts implements the XYTexter interface.
+type XYTexts []struct {
+	X, Y float64
+	Text string
+}
+
+func (d XYTexts) Len() int                                 { return len(d) }
+func (d XYTexts) XYText(i int) (x, y float64, text string) { return d[i].X, d[i].Y, d[i].Text }
+
+// ----------------------------------------------------------------------------
 // Boxplot
 
 // Boxplotter wraps the Len and Boxplot methods.

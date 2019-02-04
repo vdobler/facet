@@ -3,6 +3,7 @@ package geom
 import (
 	"image/color"
 	"math"
+	"reflect"
 
 	"github.com/vdobler/facet"
 	"gonum.org/v1/plot/vg"
@@ -45,6 +46,43 @@ func UpdateAestheticsRanges(dr *facet.DataRanges, n int,
 		if stroke != nil {
 			dr[facet.StrokeScale].Update(float64(stroke(i))) // TODO: StrokeScale should be discrete from the start
 		}
+	}
+}
+
+// CopyAesthetics copies the non-nil aesthetics from src to dst.
+// The destination must be a pointer to a struct, the source may be a struct
+// or a pointer to one.
+// The index function can be used to reindex the aestetics functions between
+// src and dst.
+func CopyAesthetics(dst, src interface{}, index func(int) int) {
+	srcVal := reflect.ValueOf(src)
+	if srcVal.Kind() == reflect.Ptr {
+		srcVal = srcVal.Elem()
+	}
+	dstVal := reflect.ValueOf(dst).Elem()
+
+	for _, aes := range []string{"Alpha", "Color", "Fill", "Shape", "Size", "Stroke"} {
+		srcAes := srcVal.FieldByName(aes)
+		if !srcAes.IsValid() {
+			continue
+		}
+		dstAes := dstVal.FieldByName(aes)
+		if !dstAes.IsValid() {
+			continue
+		}
+
+		if index == nil || srcAes.IsNil() {
+			dstAes.Set(srcAes)
+			continue
+		}
+
+		f := reflect.MakeFunc(srcAes.Type(), func(in []reflect.Value) []reflect.Value {
+			n := int(in[0].Int())
+			m := index(n)
+			val := srcAes.Call([]reflect.Value{reflect.ValueOf(m)})
+			return val
+		})
+		dstAes.Set(f)
 	}
 }
 

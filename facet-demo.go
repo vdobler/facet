@@ -77,6 +77,17 @@ func main() {
 				return xyz[i].X + xyz[i].Y
 			},
 		},
+		geom.HLine{
+			Y: plotter.Values{4.2, 8.4, 10.5},
+		},
+		geom.VLine{
+			X:       plotter.Values{2.5, 7.5},
+			Default: draw.LineStyle{Color: color.RGBA{0xff, 0, 0, 0xff}},
+		},
+		geom.VLine{
+			X:       plotter.Values{3.75, 5.25},
+			Default: draw.LineStyle{Color: color.RGBA{0, 0xff, 0, 0xff}},
+		},
 	}
 
 	// Lines plot
@@ -102,17 +113,20 @@ func main() {
 		{8, 0},
 	}
 	f.Panels[0][1].Geoms = []facet.Geom{
-		geom.Lines{
-			XY: []plotter.XYer{exp1, exp2, exp3},
-			Color: func(i int) float64 {
-				return float64(i)
-			},
-			Stroke: func(i int) int {
-				return i
-			},
-			Size: func(i int) float64 {
-				return float64(i + 2)
-			},
+		geom.Line{XY: exp1,
+			Color:  func(i int) float64 { return 1.0 },
+			Stroke: func(i int) int { return 1 },
+			Size:   func(i int) float64 { return 2.0 },
+		},
+		geom.Line{XY: exp2,
+			Color:  func(i int) float64 { return 2.0 },
+			Stroke: func(i int) int { return 2 },
+			Size:   func(i int) float64 { return 4.0 },
+		},
+		geom.Line{XY: exp3,
+			Color:  func(i int) float64 { return 3.0 },
+			Stroke: func(i int) int { return 3 },
+			Size:   func(i int) float64 { return 6.0 },
 		},
 	}
 

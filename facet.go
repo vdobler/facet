@@ -86,6 +86,7 @@ type Geom interface {
 
 // A Panel represents one panel in a faceted plot.
 type Panel struct {
+	Title  string
 	Plot   *Plot
 	Geoms  []Geom
 	Canvas draw.Canvas
@@ -135,7 +136,7 @@ type Plot struct {
 	Panels [][]*Panel
 
 	// RowLabels and ColLabels contain the optional strip titles
-	// for the row and column strips.
+	// for the row and column strips of a grid layout.
 	RowLabels, ColLabels []string
 
 	// XScales are the scales for the Col many x-axes. If the x scales
@@ -162,8 +163,9 @@ func NewSimplePlot() *Plot {
 	return NewPlot(1, 1, false, false)
 }
 
-// NewPlot creates a new faceted plot with row x col many panels.
-// All columns share the same X-sclae and all rows share the same Y-scale
+// NewPlot creates a new faceted plot in a grid layout with row * col many
+// panels.
+// All columns share the same X-scale and all rows share the same Y-scale
 // unless freeX or respectively freeY is specified.
 func NewPlot(rows, cols int, freeX, freeY bool) *Plot {
 	plot := &Plot{
@@ -351,7 +353,7 @@ func (p *Plot) setupColorAndSizeMaps() {
 }
 
 func (f *Plot) needGuides() bool {
-	for s := FillScale; s < numScales; s++ {
+	for s := AlphaScale; s < numScales; s++ {
 		if f.Scales[s].HasData() {
 			return true
 		}
@@ -428,41 +430,20 @@ func (f *Plot) Draw(c draw.Canvas) error {
 	numCols, numRows := vg.Length(f.Cols), vg.Length(f.Rows)
 	width := (w3 - padx*(numCols-1)) / numCols
 	height := (h3 - pady*(numRows-1)) / numRows
+	havePanelTitle := f.havePanelTitle()
+
 	// Point (x0,y0) is the top-left corner of each panel
 	y0 := c.Max.Y - h4
 	for row, panels := range f.Panels {
 		x0 := w1 + w2
+
 		for col, panel := range panels {
-			panel.Canvas.Canvas = c.Canvas
-			panel.Canvas.Min.X = x0
-			panel.Canvas.Min.Y = y0 - height
-			panel.Canvas.Max.X = x0 + width
-			panel.Canvas.Max.Y = y0
-			panel.Scales = f.Scales
-			panel.Scales[XScale] = f.XScales[col]
-			panel.Scales[YScale] = f.YScales[row]
-			panel.Canvas.SetColor(f.Style.Panel.Background)
-			panel.Canvas.Fill(panel.Canvas.Rectangle.Path())
-			if f.Style.Grid.Major.Color != nil {
-				for _, xtic := range xticks[col] {
-					r, _ := panel.MapXY(xtic.Value, 0)
-					sty := f.Style.Grid.Major
-					if xtic.IsMinor() {
-						sty = f.Style.Grid.Minor
-					}
-					panel.Canvas.StrokeLine2(sty,
-						r.X, y0, r.X, y0-height)
-				}
-				for _, ytic := range yticks[row] {
-					r, _ := panel.MapXY(0, ytic.Value)
-					sty := f.Style.Grid.Major
-					if ytic.IsMinor() {
-						sty = f.Style.Grid.Minor
-					}
-					panel.Canvas.StrokeLine2(sty,
-						x0, r.Y, x0+width, r.Y)
-				}
+			if panel == nil {
+				continue
 			}
+			f.setupPanel(panel, row, col, c, havePanelTitle,
+				x0, y0, width, height,
+				xticks[col], yticks[row])
 
 			if row == 0 {
 				cb := c
@@ -544,6 +525,72 @@ func (f *Plot) Draw(c draw.Canvas) error {
 	}
 
 	return nil
+}
+
+func (p *Plot) havePanelTitle() bool {
+	for _, panels := range p.Panels {
+		for _, panel := range panels {
+			if panel != nil && panel.Title != "" {
+				return true
+			}
+		}
+
+	}
+	return false
+}
+
+func (p *Plot) setupPanel(panel *Panel, row, col int, canvas draw.Canvas,
+	havePanelTitle bool,
+	x0, y0, width, height vg.Length,
+	xticks, yticks []plot.Tick) {
+
+	panel.Canvas.Canvas = canvas.Canvas
+	panel.Canvas.Min.X = x0
+	panel.Canvas.Min.Y = y0 - height
+	panel.Canvas.Max.X = x0 + width
+	panel.Canvas.Max.Y = y0
+
+	if havePanelTitle {
+		min := vg.Point{x0, y0}
+		max := vg.Point{x0 + width, y0 + p.Style.HStrip.Height}
+		p.drawStrip(canvas, panel.Title, min, max, p.Style.HStrip.TextStyle)
+	}
+
+	panel.Scales = p.Scales
+	panel.Scales[XScale] = p.XScales[col]
+	panel.Scales[YScale] = p.YScales[row]
+	panel.Canvas.SetColor(p.Style.Panel.Background)
+	panel.Canvas.Fill(panel.Canvas.Rectangle.Path())
+	if p.Style.Grid.Major.Color != nil {
+		for _, xtic := range xticks {
+			r, _ := panel.MapXY(xtic.Value, 0)
+			sty := p.Style.Grid.Major
+			if xtic.IsMinor() {
+				sty = p.Style.Grid.Minor
+			}
+			panel.Canvas.StrokeLine2(sty,
+				r.X, y0, r.X, y0-height)
+		}
+		for _, ytic := range yticks {
+			r, _ := panel.MapXY(0, ytic.Value)
+			sty := p.Style.Grid.Major
+			if ytic.IsMinor() {
+				sty = p.Style.Grid.Minor
+			}
+			panel.Canvas.StrokeLine2(sty,
+				x0, r.Y, x0+width, r.Y)
+		}
+	}
+
+}
+
+func (p *Plot) drawStrip(c draw.Canvas, text string, min, max vg.Point, style draw.TextStyle) {
+	cb := c
+	cb.Min = min
+	cb.Max = max
+	cb.SetColor(p.Style.VStrip.Background)
+	cb.Fill(cb.Rectangle.Path())
+	cb.FillText(style, cb.Center(), text)
 }
 
 // MapSize maps the data value s to a display length via f's size scale.

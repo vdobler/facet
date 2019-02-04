@@ -237,14 +237,6 @@ func (b Bar) rects() Rectangle {
 
 	g := b.groups()
 
-	/*
-		minDelta := g.minDelta()
-		halfBarWidth := (1 - b.Gap) * minDelta / 2
-		if b.Position == "dodge" {
-			maxGroupSize = g.maxGroupSize()
-			halfBarWidth /= float64(maxGroupSize)
-		}
-	*/
 	for _, x := range g.Xs() {
 		is := g.Group[x] // indices of all bars to draw at x
 		switch b.Position {
@@ -278,11 +270,6 @@ func (b Bar) rects() Rectangle {
 				}
 			}
 		case "dodge":
-			/*
-				n := len(is)
-				x -= float64(n) * halfBarWidth
-				barWidth := 2 * halfBarWidth
-			*/
 			for _, i := range is {
 				center, halfwidth := g.Width(x, i)
 				_, y := b.XY.XY(i)
@@ -294,14 +281,9 @@ func (b Bar) rects() Rectangle {
 		}
 	}
 
-	return Rectangle{
-		XYUV:   XYUV,
-		Fill:   b.Fill,
-		Color:  b.Color,
-		Size:   b.Size,
-		Stroke: b.Stroke,
-	}
-
+	rect := Rectangle{XYUV: XYUV}
+	CopyAesthetics(&rect, b, nil)
+	return rect
 }
 
 func (b Bar) groups() *BarGroups {
@@ -458,11 +440,14 @@ func (bg *BarGroups) recalc() {
 }
 
 // ----------------------------------------------------------------------------
-// Lines
+// Path
 
-// Line draws
-type Lines struct {
-	XY []plotter.XYer
+// Path connects the given points in data order through straight line segments.
+// The aestetics map the individual line segments based on their first point.
+//
+// (To draw them in order of x values see Line.)
+type Path struct {
+	XY plotter.XYer
 
 	Alpha  Aesthetic
 	Color  Aesthetic
@@ -472,35 +457,33 @@ type Lines struct {
 	Default draw.LineStyle
 }
 
-func (l Lines) Draw(panel *facet.Panel) {
-	baseColor := l.Default.Color
+func (p Path) Draw(panel *facet.Panel) {
+	baseColor := p.Default.Color
 	if baseColor == nil {
 		baseColor = panel.Plot.Style.GeomDefault.Color
 	}
 
-	width := l.Default.Width
+	width := p.Default.Width
 	if width == 0 {
 		width = panel.Plot.Style.GeomDefault.LineWidth
 	}
 
-	dashes := l.Default.Dashes
+	dashes := p.Default.Dashes
 
 	canvas := panel.Canvas
-	for g, xy := range l.XY {
-		ps := make([]vg.Point, xy.Len())
-		for i := 0; i < xy.Len(); i++ {
-			ps[i], _ = panel.MapXY(xy.XY(i)) // Clipping done below.
-		}
+	for i := 0; i < p.XY.Len()-1; i++ {
+		left, _ := panel.MapXY(p.XY.XY(i))      // Clipping done below.
+		right, _ := panel.MapXY(p.XY.XY(i + 1)) // Clipping done below.
 
-		col, ok := determineColor(baseColor, panel, g, l.Color, l.Alpha)
+		col, ok := determineColor(baseColor, panel, i, p.Color, p.Alpha)
 		if !ok {
 			continue // TODO: report dropping of data to Plot/Panel
 		}
-		if l.Stroke != nil {
-			dashes = plotutil.Dashes(l.Stroke(g))
+		if p.Stroke != nil {
+			dashes = plotutil.Dashes(p.Stroke(i))
 		}
-		if l.Size != nil {
-			width = panel.MapSize(l.Size(g))
+		if p.Size != nil {
+			width = panel.MapSize(p.Size(i))
 		}
 
 		sty := draw.LineStyle{
@@ -509,88 +492,263 @@ func (l Lines) Draw(panel *facet.Panel) {
 			Dashes: dashes,
 		}
 
-		canvas.StrokeLines(sty, canvas.ClipLinesXY(ps)...)
+		// TODO: What if dropped completely? Report?
+		canvas.StrokeLines(sty, canvas.ClipLinesXY([]vg.Point{left, right})...)
 	}
 }
 
-func (l Lines) AllDataRanges() facet.DataRanges {
+func (p Path) AllDataRanges() facet.DataRanges {
 	dr := facet.NewDataRanges()
-	for _, xy := range l.XY {
-		xmin, xmax, ymin, ymax := plotter.XYRange(xy)
-		dr[facet.XScale].Update(xmin)
-		dr[facet.XScale].Update(xmax)
-		dr[facet.YScale].Update(ymin)
-		dr[facet.YScale].Update(ymax)
-		UpdateAestheticsRanges(&dr, xy.Len(), l.Alpha, l.Color, nil, nil, l.Size, l.Stroke)
+	for i := 0; i < p.XY.Len(); i++ {
+		x, y := p.XY.XY(i)
+		dr[facet.XScale].Update(x)
+		dr[facet.YScale].Update(y)
 	}
+	UpdateAestheticsRanges(&dr, p.XY.Len(), p.Alpha, p.Color, nil, nil, p.Size, p.Stroke)
 	return dr
 }
 
 // ----------------------------------------------------------------------------
-// LinesPoints
+// Line
 
-// LinesPoints draws Points connected by lines
-type LinesPoints struct {
-	XY []plotter.XYer
+// Line connects the given points in order of the x values by straight line segments.
+// The aestetics map the individual line segments based on their first point.
+//
+// (To draw them in data order see Path.)
+type Line struct {
+	XY plotter.XYer
 
 	Alpha  Aesthetic
 	Color  Aesthetic
-	Shape  DiscreteAesthetic // of Points
-	Size   Aesthetic         // of Points
-	Stroke DiscreteAesthetic // of Lines
+	Size   Aesthetic
+	Stroke DiscreteAesthetic
 
-	LineDefault  draw.LineStyle
-	PointDefault draw.GlyphStyle
+	Default draw.LineStyle
 }
 
-func (lp LinesPoints) Draw(panel *facet.Panel) {
-	lines := Lines{
-		XY:      lp.XY,
-		Default: lp.LineDefault,
-	}
-	if lp.Alpha != nil {
-		lines.Alpha = lp.Alpha
-	}
-	if lp.Color != nil {
-		lines.Color = lp.Color
-	}
-	if lp.Stroke != nil {
-		lines.Stroke = lp.Stroke
-	}
-	lines.Draw(panel)
+func (l Line) toPath() Path {
+	path := Path(l)
 
-	for g, xy := range lp.XY {
-		points := Point{
-			XY:      xy,
-			Default: lp.PointDefault,
+	xy := make(plotter.XYs, l.XY.Len())
+	for i := range xy {
+		xy[i].X, xy[i].Y = l.XY.XY(i)
+	}
+	sort.Slice(xy, func(i, j int) bool { return xy[i].X < xy[j].X })
+	path.XY = xy
+
+	return path
+}
+
+func (l Line) Draw(panel *facet.Panel) {
+	path := l.toPath()
+	path.Draw(panel)
+}
+
+func (l Line) AllDataRanges() facet.DataRanges {
+	path := Path(l) // no need to sort
+	return path.AllDataRanges()
+}
+
+// ----------------------------------------------------------------------------
+// Step
+
+// Step produces a stairstep plot of the given data.
+type Step struct {
+	XY plotter.XYer
+
+	Alpha  Aesthetic
+	Color  Aesthetic
+	Size   Aesthetic
+	Stroke DiscreteAesthetic
+
+	// Vertical changes the step to "vertical then horizontal".
+	Vertical bool
+
+	Default draw.LineStyle
+}
+
+func (s Step) toPath() Path {
+	path := Path{Alpha: s.Alpha, Color: s.Color, Size: s.Size,
+		Stroke: s.Stroke, Default: s.Default}
+
+	N := s.XY.Len()
+	xy := make(plotter.XYs, 2*N-1)
+	for i := 0; i < N; i++ {
+		xy[i].X, xy[i].Y = s.XY.XY(i)
+	}
+	sort.Slice(xy[:N], func(i, j int) bool { return xy[i].X < xy[j].X })
+
+	for i := len(xy) - 1; i > 0; i -= 2 {
+		xy[i] = xy[i/2]
+	}
+
+	for i := 1; i < len(xy); i += 2 {
+		if s.Vertical {
+			xy[i].X, xy[i].Y = xy[i-1].X, xy[i+1].Y
+		} else {
+			xy[i].X, xy[i].Y = xy[i+1].X, xy[i-1].Y
 		}
-		if lp.Alpha != nil {
-			points.Alpha = func(i int) float64 { return lp.Alpha(g) }
+	}
+
+	path.XY = xy
+
+	return path
+}
+
+func (s Step) Draw(panel *facet.Panel) {
+	path := s.toPath()
+	path.Draw(panel)
+}
+
+func (s Step) AllDataRanges() facet.DataRanges {
+	// all additional points lie inside the range spaned by the original data points.
+	path := Path{Alpha: s.Alpha, Color: s.Color, Size: s.Size,
+		Stroke: s.Stroke, Default: s.Default}
+	return path.AllDataRanges()
+}
+
+// ----------------------------------------------------------------------------
+// Segment
+
+// Segment draws line segments between two points (X,Y) and (U,V).
+type Segment struct {
+	XYUV data.XYUVer
+
+	Alpha  Aesthetic
+	Color  Aesthetic
+	Size   Aesthetic
+	Stroke DiscreteAesthetic
+
+	Default draw.LineStyle
+}
+
+func (s Segment) Draw(panel *facet.Panel) {
+	baseColor := s.Default.Color
+	if baseColor == nil {
+		baseColor = panel.Plot.Style.GeomDefault.Color
+	}
+
+	width := s.Default.Width
+	if width == 0 {
+		width = panel.Plot.Style.GeomDefault.LineWidth
+	}
+
+	dashes := s.Default.Dashes
+
+	canvas := panel.Canvas
+	for i := 0; i < s.XYUV.Len(); i++ {
+		x, y, u, v := s.XYUV.XYUV(i)
+		left, _ := panel.MapXY(x, y)  // Clipping done below.
+		right, _ := panel.MapXY(u, v) // Clipping done below.
+
+		col, ok := determineColor(baseColor, panel, i, s.Color, s.Alpha)
+		if !ok {
+			continue // TODO: report dropping of data to Plot/Panel
 		}
-		if lp.Color != nil {
-			points.Color = func(i int) float64 { return lp.Color(g) }
+		if s.Stroke != nil {
+			dashes = plotutil.Dashes(s.Stroke(i))
 		}
-		if lp.Size != nil {
-			points.Size = func(i int) float64 { return lp.Size(g) }
+		if s.Size != nil {
+			width = panel.MapSize(s.Size(i))
 		}
-		if lp.Shape != nil {
-			points.Shape = func(i int) int { return lp.Shape(g) }
+
+		sty := draw.LineStyle{
+			Color:  col,
+			Width:  width,
+			Dashes: dashes,
 		}
-		points.Draw(panel)
+
+		// TODO: What if dropped completely? Report?
+		canvas.StrokeLines(sty, canvas.ClipLinesXY([]vg.Point{left, right})...)
 	}
 }
 
-func (lp LinesPoints) AllDataRanges() facet.DataRanges {
+func (s Segment) AllDataRanges() facet.DataRanges {
 	dr := facet.NewDataRanges()
-	for _, xy := range lp.XY {
-		for i := 0; i < xy.Len(); i++ {
-			x, y := xy.XY(i)
-			dr[facet.XScale].Update(x)
-			dr[facet.YScale].Update(y)
-		}
+	for i := 0; i < s.XYUV.Len(); i++ {
+		x, y, u, v := s.XYUV.XYUV(i)
+		dr[facet.XScale].Update(x)
+		dr[facet.YScale].Update(y)
+		dr[facet.XScale].Update(u)
+		dr[facet.YScale].Update(v)
 	}
-	UpdateAestheticsRanges(&dr, len(lp.XY), lp.Alpha, lp.Color, nil, lp.Shape, lp.Size, lp.Stroke)
+	UpdateAestheticsRanges(&dr, s.XYUV.Len(), s.Alpha, s.Color, nil, nil, s.Size, s.Stroke)
+	return dr
+}
 
+// ----------------------------------------------------------------------------
+// HLine
+
+// HLine draws horizontal reference (or rule) lines at the given Y values.
+type HLine struct {
+	Y plotter.Valuer
+
+	Alpha  Aesthetic
+	Color  Aesthetic
+	Size   Aesthetic
+	Stroke DiscreteAesthetic
+
+	Default draw.LineStyle
+}
+
+func (h HLine) Draw(panel *facet.Panel) {
+	N := h.Y.Len()
+	xyuv := make(data.XYUVs, N)
+	xscale := panel.Scales[facet.XScale]
+	xmin, xmax := xscale.Min, xscale.Max
+	for i := 0; i < N; i++ {
+		y := h.Y.Value(i)
+		xyuv[i].X, xyuv[i].Y, xyuv[i].U, xyuv[i].V = xmin, y, xmax, y
+	}
+	segment := Segment{XYUV: xyuv, Default: h.Default}
+	CopyAesthetics(&segment, h, nil)
+	segment.Draw(panel)
+}
+
+func (h HLine) AllDataRanges() facet.DataRanges {
+	dr := facet.NewDataRanges()
+	for i := 0; i < h.Y.Len(); i++ {
+		dr[facet.YScale].Update(h.Y.Value(i))
+	}
+	UpdateAestheticsRanges(&dr, h.Y.Len(), h.Alpha, h.Color, nil, nil, h.Size, h.Stroke)
+	return dr
+}
+
+// ----------------------------------------------------------------------------
+// VLine
+
+// VLine draws vertical reference (or rule) lines at the given X values.
+type VLine struct {
+	X plotter.Valuer
+
+	Alpha  Aesthetic
+	Color  Aesthetic
+	Size   Aesthetic
+	Stroke DiscreteAesthetic
+
+	Default draw.LineStyle
+}
+
+func (v VLine) Draw(panel *facet.Panel) {
+	N := v.X.Len()
+	xyuv := make(data.XYUVs, N)
+	yscale := panel.Scales[facet.YScale]
+	ymin, ymax := yscale.Min, yscale.Max
+	for i := 0; i < N; i++ {
+		x := v.X.Value(i)
+		xyuv[i].X, xyuv[i].Y, xyuv[i].U, xyuv[i].V = x, ymin, x, ymax
+	}
+	segment := Segment{XYUV: xyuv, Default: v.Default}
+	CopyAesthetics(&segment, v, nil)
+	segment.Draw(panel)
+}
+
+func (v VLine) AllDataRanges() facet.DataRanges {
+	dr := facet.NewDataRanges()
+	for i := 0; i < v.X.Len(); i++ {
+		dr[facet.XScale].Update(v.X.Value(i))
+	}
+	UpdateAestheticsRanges(&dr, v.X.Len(), v.Alpha, v.Color, nil, nil, v.Size, v.Stroke)
 	return dr
 }
 
@@ -621,22 +779,20 @@ type Boxplot struct {
 func (b Boxplot) Draw(panel *facet.Panel) {
 	// A Boxplot is drawn by:
 	//     - Rectangle in XYUV: One per data point.
-	//     - Lines in XY: Three per data point
+	//     - Lines in Seg: Three per data point
 	//     - Points in XYZ: arbitrary many per data point
-	XYUV := make(data.XYUVs, b.Boxplot.Len())
-	XY := make([]plotter.XYer, 3*b.Boxplot.Len())
-	for j := range XY {
-		XY[j] = make(plotter.XYs, 2)
-	}
+	N := b.Boxplot.Len()
+	XYUV := make(data.XYUVs, N)
+	Seg := make(data.XYUVs, 3*N)
 	XYZ := plotter.XYZs{}
 
 	g := NewBarGroups(b.Position, b.GGap, b.BGap, true)
-	for i := 0; i < b.Boxplot.Len(); i++ {
+	for i := 0; i < N; i++ {
 		x, _, _, _, _, _, _ := b.Boxplot.Boxplot(i)
 		g.Record(x, i)
 	}
 
-	for i := 0; i < b.Boxplot.Len(); i++ {
+	for i := 0; i < N; i++ {
 		x, min, q1, median, q3, max, out := b.Boxplot.Boxplot(i)
 
 		// The box.
@@ -646,18 +802,9 @@ func (b Boxplot) Draw(panel *facet.Panel) {
 		XYUV[i].Y, XYUV[i].V = q1, q3
 
 		// The lines
-		hor := make(plotter.XYs, 2)
-		hor[0].X, hor[0].Y = xmin, median
-		hor[1].X, hor[1].Y = xmax, median
-		XY[i*3] = hor
-		vert1 := make(plotter.XYs, 2)
-		vert1[0].X, vert1[0].Y = center, q3
-		vert1[1].X, vert1[1].Y = center, max
-		XY[i*3+1] = vert1
-		vert2 := make(plotter.XYs, 2)
-		vert2[0].X, vert2[0].Y = center, q1
-		vert2[1].X, vert2[1].Y = center, min
-		XY[i*3+2] = vert2
+		Seg[3*i].X, Seg[3*i].Y, Seg[3*i].U, Seg[3*i].V = xmin, median, xmax, median
+		Seg[3*i+1].X, Seg[3*i+1].Y, Seg[3*i+1].U, Seg[3*i+1].V = center, min, center, q1
+		Seg[3*i+2].X, Seg[3*i+2].Y, Seg[3*i+2].U, Seg[3*i+2].V = center, q3, center, max
 
 		// The outliers
 		for _, o := range out {
@@ -668,37 +815,18 @@ func (b Boxplot) Draw(panel *facet.Panel) {
 			XYZ = append(XYZ, struct{ X, Y, Z float64 }{center, o, z})
 		}
 	}
-	rect := Rectangle{
-		XYUV:    XYUV,
-		Alpha:   b.Alpha,
-		Color:   b.Color,
-		Fill:    b.Fill,
-		Size:    b.Size,
-		Stroke:  b.Stroke,
-		Default: b.Default,
-	}
-	line := Lines{
-		XY:      XY,
-		Alpha:   b.Alpha,
-		Color:   b.Color,
-		Size:    b.Size,
-		Stroke:  b.Stroke,
-		Default: b.Default.Border,
-	}
-	point := Point{
-		XY:      plotter.XYValues{XYZ},
-		Alpha:   b.Alpha,
-		Color:   b.Color,
-		Size:    b.Size,
-		Default: b.DefaultPoint,
-	}
+	rect := Rectangle{XYUV: XYUV, Default: b.Default}
+	segment := Segment{XYUV: Seg, Default: b.Default.Border}
+	point := Point{XY: plotter.XYValues{XYZ}, Default: b.DefaultPoint}
+	CopyAesthetics(&rect, b, nil)
+	CopyAesthetics(&segment, b, func(n int) int { return n / 3 })
+	CopyAesthetics(&point, b, nil)
 	if b.Color != nil {
-		line.Color = func(i int) float64 { return b.Color(i / 3) }
 		point.Color = func(i int) float64 { return XYZ[i].Z }
-	} // TODO: same for Size and Stroke
+	}
 
 	rect.Draw(panel)
-	line.Draw(panel)
+	segment.Draw(panel)
 	point.Draw(panel)
 }
 

@@ -110,6 +110,10 @@ func determineColor(col color.Color, panel *facet.Panel, i int, colorF, alphaF A
 		col = panel.MapColor(colorF(i))
 	}
 
+	if col == nil {
+		return col, false
+	}
+
 	if alphaF != nil {
 		alpha := panel.Scales[facet.AlphaScale].Map(alphaF(i))
 		if alpha < 0 || alpha > 1 || math.IsNaN(alpha) {

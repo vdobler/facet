@@ -8,90 +8,131 @@ import (
 	"strings"
 
 	"github.com/vdobler/facet"
+	"github.com/vdobler/facet/data"
 	"github.com/vdobler/facet/geom"
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/vg/draw"
 	"gonum.org/v1/plot/vg/vgimg"
 )
 
-var xyz = plotter.XYZs{
-	{1, 1, 1},
-	{2, 2, 2},
-	{3, 3, 3},
-	{4, 4, 4},
-	{5, 5, 5},
-	{6, 6, 6},
-	{7, 7, 7},
-	{8, 8, 8},
-	{9, 9, 9},
+var xy = plotter.XYs{
+	{1, 1},
+	{2, 2},
+	{3, 3},
+	{4, 4},
+	{5, 5},
+	{6, 6},
+	{7, 7},
+	{8, 8},
+	{9, 9},
 }
 
-func points(size, color, symbol bool) facet.Geom {
-	p := geom.Point{XY: plotter.XYValues{xyz}}
+func points(alpha, color, fill, shape, size, stroke bool) facet.Geom {
+	p := geom.Point{XY: xy}
 
-	if size {
-		p.Size = func(i int) float64 { return xyz[i].Z }
+	if alpha {
+		p.Alpha = func(i int) float64 { return float64(i) }
 	}
 	if color {
-		p.Color = func(i int) float64 { return xyz[i].Z }
+		p.Color = func(i int) float64 { return float64(i) }
 	}
-	if symbol {
-		p.Shape = func(i int) int { return int(xyz[i].Z) }
+	if shape {
+		p.Shape = func(i int) int { return i }
+	}
+	if size {
+		p.Size = func(i int) float64 { return float64(i) }
 	}
 
 	return p
 }
 
-func linespoints(alpha, size, color, symbol, style bool) facet.Geom {
-	lp := geom.LinesPoints{
-		XY: make([]plotter.XYer, len(xyz)),
-	}
+func segments(alpha, color, fill, shape, size, stroke bool) facet.Geom {
+	xyuv := make(data.XYUVs, len(xy))
+	for i := range xyuv {
+		xyuv[i].X = xy[i].X - 0.5
+		xyuv[i].U = xy[i].X + 0.5
 
-	for i, v := range xyz {
-		lp.XY[i] = plotter.XYs{
-			{v.X, v.Y},
-			{v.X + 3, v.Y + 1},
-			{v.X + 5, v.Y - 2},
+		if i%2 == 0 {
+			xyuv[i].Y = xy[i].X - 0.5
+			xyuv[i].V = xy[i].X + 0.5
+		} else {
+			xyuv[i].Y = xy[i].X + 0.5
+			xyuv[i].V = xy[i].X - 0.5
+
 		}
+	}
+	seg := geom.Segment{
+		XYUV: xyuv,
 	}
 
 	if alpha {
-		lp.Alpha = func(i int) float64 { return float64(i) }
-	}
-	if size {
-		lp.Size = func(i int) float64 { return float64(i) }
+		seg.Alpha = func(i int) float64 { return float64(i) }
 	}
 	if color {
-		lp.Color = func(i int) float64 { return float64(i) }
+		seg.Color = func(i int) float64 { return float64(i) }
 	}
-	if symbol {
-		lp.Shape = func(i int) int { return i }
+	if size {
+		seg.Size = func(i int) float64 { return float64(i) }
 	}
-	if style {
-		lp.Stroke = func(i int) int { return i }
+	if stroke {
+		seg.Stroke = func(i int) int { return i }
 	}
 
-	return lp
+	return seg
 }
 
-func sample(alpha, size, color, symbol, style bool) *facet.Plot {
+func rectangles(alpha, color, fill, shape, size, stroke bool) facet.Geom {
+	xyuv := make(data.XYUVs, len(xy))
+	for i := range xyuv {
+		xyuv[i].X = xy[i].X - 0.4
+		xyuv[i].U = xy[i].X + 0.4
+		xyuv[i].Y = 10 - xy[i].X
+		xyuv[i].V = 9 - xy[i].X
+	}
+	rect := geom.Rectangle{
+		XYUV: xyuv,
+	}
+
+	if alpha {
+		rect.Alpha = func(i int) float64 { return float64(i) }
+	}
+	if color {
+		rect.Color = func(i int) float64 { return float64(i) }
+	}
+	if fill {
+		rect.Fill = func(i int) float64 { return float64(i) }
+	}
+	if size {
+		rect.Size = func(i int) float64 { return float64(i) }
+	}
+	if stroke {
+		rect.Stroke = func(i int) int { return i }
+	}
+
+	return rect
+}
+
+func sample(alpha, color, fill, shape, size, stroke bool) *facet.Plot {
 	f := facet.NewSimplePlot()
 
 	features := []string{}
 	if alpha {
 		features = append(features, "Alpha")
 	}
-	if size {
-		features = append(features, "Size")
-	}
 	if color {
 		features = append(features, "Color")
 	}
-	if symbol {
-		features = append(features, "Symbol")
+	if fill {
+		features = append(features, "Fill")
 	}
-	if style {
-		features = append(features, "Style")
+	if shape {
+		features = append(features, "Shape")
+	}
+	if size {
+		features = append(features, "Size")
+	}
+	if stroke {
+		features = append(features, "Stroke")
 	}
 	if len(features) == 0 {
 		features = append(features, "-none-")
@@ -101,27 +142,32 @@ func sample(alpha, size, color, symbol, style bool) *facet.Plot {
 	rainbow := &facet.Rainbow{Saturation: 0.9, Value: 0.9}
 	rainbow.SetAlpha(1)
 	rainbow.HueGap = 1.0 / 6.0
-	rainbow.StartHue = 2.0 / 6.0
+	rainbow.StartHue = 0.5 / 6.0
 
-	f.Scales[facet.ColorScale].ScaleType = facet.Linear
-	// f.Scales[facet.ColorScale].ColorMap = rainbow
+	// f.Scales[facet.ColorScale].ScaleType = facet.Linear
+	f.ColorMap = rainbow
+	f.FillMap = rainbow
 
 	f.Scales[facet.ShapeScale].ScaleType = facet.Linear
 
-	f.Panels[0][0].Geoms = []facet.Geom{linespoints(alpha, size, color, symbol, style)}
+	f.Panels[0][0].Geoms = []facet.Geom{
+		rectangles(alpha, color, fill, shape, size, stroke),
+		segments(alpha, color, fill, shape, size, stroke),
+		points(alpha, color, fill, shape, size, stroke),
+	}
 
 	return f
 }
 
 func main() {
-	for m := uint(0); m < 32; m++ {
+	for m := uint(0); m <= 64; m++ {
 		fmt.Println()
-		alpha, size, color, symbol, style := m&0x01 != 0, m&0x02 != 0, m&0x04 != 0, m&0x08 != 0, m&0x10 != 0
+		alpha, color, fill, shape, size, stroke := m&0x01 != 0, m&0x02 != 0, m&0x04 != 0, m&0x08 != 0, m&0x10 != 0, m&0x20 != 0
 		fmt.Println("====== ", m, " ======")
-		img := vgimg.New(400, 300)
+		img := vgimg.New(600, 480)
 		dc := draw.New(img)
 		c := dc
-		f := sample(alpha, size, color, symbol, style)
+		f := sample(alpha, color, fill, shape, size, stroke)
 		f.Range()
 		f.Draw(c)
 		if c.Max.X < 900 {

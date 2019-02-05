@@ -150,6 +150,10 @@ func (r Rectangle) Draw(panel *facet.Panel) {
 		border.Color = color.RGBA{0, 0, 0x10, 0xff}
 		border.Width = 2 // TODO ??
 	}
+	if fill == nil && border.Color == nil {
+		border.Color = color.RGBA{0, 0, 0x10, 0xff}
+		border.Width = 2 // TODO ??
+	}
 
 	for i := 0; i < r.XYUV.Len(); i++ {
 		x, y, u, v := r.XYUV.XYUV(i)
@@ -160,27 +164,25 @@ func (r Rectangle) Draw(panel *facet.Panel) {
 		}
 		rect := vg.Rectangle{Min: min, Max: max}
 		rect = clipRect(rect, panel.Canvas)
-		if r.Fill != nil {
-			fill = panel.MapFill(r.Fill(i))
-		}
-		panel.Canvas.SetColor(fill)
-		panel.Canvas.Fill(rect.Path())
 
-		if r.Color != nil {
-			border.Color = panel.MapColor(r.Color(i))
+		if fillCol, ok := determineColor(fill, panel, i, r.Fill, r.Alpha); ok {
+			panel.Canvas.SetColor(fillCol)
+			panel.Canvas.Fill(rect.Path())
 		}
 		if r.Size != nil {
 			border.Width = panel.MapSize(r.Size(i))
 		}
-		// TODO: Style
+		if border.Width <= 0 {
+			continue
+		}
 
-		if border.Color != nil && border.Width > 0 {
-			w := 0.4999 * border.Width
+		if borderCol, ok := determineColor(border.Color, panel, i, r.Color, r.Alpha); ok {
+			w := 0.499 * border.Width
 			rect.Min.X += w
 			rect.Min.Y += w
 			rect.Max.X -= w
 			rect.Max.Y -= w
-			panel.Canvas.SetColor(border.Color)
+			panel.Canvas.SetColor(borderCol)
 			panel.Canvas.SetLineWidth(border.Width)
 			panel.Canvas.SetLineDash(border.Dashes, border.DashOffs)
 			panel.Canvas.Stroke(rect.Path())

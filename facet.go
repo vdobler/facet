@@ -611,7 +611,7 @@ func (p *Plot) MapSize(v float64) vg.Length {
 func (p *Plot) MapColor(v float64, fill bool) color.Color {
 	scale, cm := p.Scales[ColorScale], p.ColorMap
 	if fill {
-		scale, cm = p.Scales[ColorScale], p.FillMap
+		scale, cm = p.Scales[FillScale], p.FillMap
 	}
 	if !scale.InRange(v) {
 		return color.Gray{0x7f}
@@ -876,9 +876,7 @@ func (plot *Plot) drawDiscreteGuides(c draw.Canvas, scales []int) vg.Length {
 		if showAlpha {
 			r, g, b, a := col.RGBA()
 			alpha := plot.Scales[AlphaScale].Map(tick.Value)
-			fmt.Println("%%%%  ", r, g, b, alpha)
 			col = color.NRGBA64{uint16(r), uint16(g), uint16(b), uint16(float64(a) * alpha)}
-			fmt.Println("%%%%     ", col)
 		}
 
 		if showSize {

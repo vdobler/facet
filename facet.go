@@ -5,7 +5,9 @@ import (
 	"image/color"
 	"log"
 	"math"
+	"os"
 	"strconv"
+	"strings"
 
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/palette"
@@ -37,12 +39,6 @@ func (d debugging) VVV(a ...interface{}) {
 
 var debug = debugging(3)
 
-type AllDataRanger interface {
-	// AllDataRanges returns the ranges covered by the data for all
-	// used scales.
-	AllDataRanges() DataRanges
-}
-
 // DataRanges contains all the ranges covered by some data.
 type DataRanges [numScales]Interval
 
@@ -50,7 +46,7 @@ type DataRanges [numScales]Interval
 func NewDataRanges() DataRanges {
 	dr := DataRanges{}
 	for i := range dr {
-		dr[i].Min, dr[i].Max = math.NaN(), math.NaN()
+		dr[i] = UnsetInterval
 	}
 	return dr
 }
@@ -77,7 +73,12 @@ var scaleName = []string{
 	"Size-Scale",
 	"Stroke-Scale"}
 
+// A Geom is the geometrical representation of some data.
 type Geom interface {
+	// DataRange returns what ranges on which scales this Geom coveres.
+	DataRange() DataRanges
+
+	// Draw is called to draw this Geom onto p.
 	Draw(p *Panel)
 }
 
@@ -191,6 +192,7 @@ func NewPlot(rows, cols int, freeX, freeY bool) *Plot {
 	if freeX {
 		for c := range plot.XScales {
 			plot.XScales[c] = NewScale()
+
 		}
 	} else {
 		common := NewScale()
@@ -199,11 +201,12 @@ func NewPlot(rows, cols int, freeX, freeY bool) *Plot {
 		}
 	}
 
-	// The different X-scales.
+	// The different Y-scales.
 	if freeY {
 		for r := range plot.YScales {
 			plot.YScales[r] = NewScale()
 		}
+
 	} else {
 		common := NewScale()
 		for r := range plot.YScales {
@@ -215,6 +218,8 @@ func NewPlot(rows, cols int, freeX, freeY bool) *Plot {
 	for i := range plot.Scales {
 		plot.Scales[i] = NewScale()
 	}
+
+	plot.setScaleDefaults()
 
 	// The two color maps.
 	rainbow := &Rainbow{
@@ -230,28 +235,63 @@ func NewPlot(rows, cols int, freeX, freeY bool) *Plot {
 	return plot
 }
 
-// Learn all data ranges for all scales for all plotters in all panels in f.
-func (f *Plot) learnDataRange() {
-	for row := 0; row < f.Rows; row++ {
-		f.Scales[YScale] = f.YScales[row]
-		for col := 0; col < f.Cols; col++ {
-			f.Scales[XScale] = f.XScales[col]
-			for _, plt := range f.Panels[row][col].Geoms {
-				if adr, ok := plt.(AllDataRanger); ok {
-					dr := adr.AllDataRanges()
-					for i := range dr {
-						f.Scales[i].UpdateData(dr[i])
-					}
-				} else if sdr, ok := plt.(plot.DataRanger); ok {
-					xmin, xmax, ymin, ymax := sdr.DataRange()
-					f.Scales[XScale].Update(xmin)
-					f.Scales[XScale].Update(xmax)
-					f.Scales[YScale].Update(ymin)
-					f.Scales[YScale].Update(ymax)
+func (p *Plot) setScaleDefaults() {
+	// The positional scales look good if the scale is 5% longer than
+	// the actual data range on each side.
+	for _, s := range p.XScales {
+		s.Autoscaling.Expand.Releative = p.Style.XAxis.Expand.Releative
+		s.Autoscaling.Expand.Absolute = p.Style.XAxis.Expand.Absolute
+		s.Trans = LinearTrans
+	}
+	for _, s := range p.YScales {
+		s.Autoscaling.Expand.Releative = p.Style.YAxis.Expand.Releative
+		s.Autoscaling.Expand.Absolute = p.Style.YAxis.Expand.Absolute
+		s.Trans = LinearTrans
+	}
+
+	// TODO: Trans for other scales.
+
+	// The size scale normaly maps the size aestethics to area
+	// so use an sqrt transform and do not map 0 to visually nothing.
+	p.Scales[SizeScale].Trans = SqrtTrans
+}
+
+// LearnDataRange determines the the range the data covers in all scales.
+func (p *Plot) LearnDataRange() {
+	for _, s := range p.XScales {
+		s.Data = UnsetInterval
+	}
+	for _, s := range p.YScales {
+		s.Data = UnsetInterval
+	}
+	for _, s := range p.Scales {
+		s.Data = UnsetInterval
+	}
+
+	for row := 0; row < p.Rows; row++ {
+		p.Scales[YScale] = p.YScales[row]
+		for col := 0; col < p.Cols; col++ {
+			p.Scales[XScale] = p.XScales[col]
+			for _, geom := range p.Panels[row][col].Geoms {
+				for s, r := range geom.DataRange() {
+					p.Scales[s].UpdateData(r)
 				}
 			}
 		}
 	}
+	p.debugScales("After learning data ranges")
+
+}
+
+// Autoscale all scales based on the current Data range.
+func (p *Plot) Autoscale() {
+	p.applyToScales((*Scale).Autoscale)
+	p.debugScales("After autoscaling")
+}
+
+func (p *Plot) fillRange() {
+	p.applyToScales((*Scale).fillRange)
+	p.debugScales("After filling Range")
 }
 
 func (f *Plot) applyToScales(m func(*Scale)) {
@@ -278,16 +318,22 @@ func (f *Plot) applyToScales(m func(*Scale)) {
 		done[s] = true
 	}
 }
+func (p *Plot) Warnf(f string, args ...interface{}) {
+	if !strings.HasSuffix(f, "\n") {
+		f += "\n"
+	}
+	fmt.Fprintf(os.Stderr, f, args...)
+}
 
-func (f *Plot) debugScales(info string) {
+func (p *Plot) debugScales(info string) {
 	debug.V(info)
-	for i, s := range f.XScales {
+	for i, s := range p.XScales {
 		debug.VV("X-Axis", i, s)
 	}
-	for i, s := range f.YScales {
+	for i, s := range p.YScales {
 		debug.VV("Y-Axis", i, s)
 	}
-	for i, s := range f.Scales {
+	for i, s := range p.Scales {
 		if i == XScale || i == YScale {
 			continue
 		}
@@ -295,54 +341,33 @@ func (f *Plot) debugScales(info string) {
 	}
 }
 
-func (f *Plot) deDegenerateXandY() error {
+// DeDegenerateXandY makes sure the Limit intervall for all X and Y scales in p
+// are not degenerated: NaN and Inf are turned into -1 (Min) or +1 (Max)
+// degenerate intervalls of the form [a, a] are exapnded around a.
+func (p *Plot) DeDegenerateXandY() {
 	// X- and Y-scales must not be unset or degenerate
-	for _, s := range f.XScales {
-		if math.IsNaN(s.Min) {
-			s.Min = -1
-		}
-		if math.IsNaN(s.Max) {
-			s.Max = 1
+	for i, s := range p.XScales {
+		if s.Limit.Degenerate() {
+			p.Warnf("Corrected degeneration of %dth X scale", i)
 		}
 	}
-	for _, s := range f.YScales {
-		if math.IsNaN(s.Min) {
-			s.Min = -1
-		}
-		if math.IsNaN(s.Max) {
-			s.Max = 1
+	for i, s := range p.YScales {
+		if s.Limit.Degenerate() {
+			p.Warnf("Corrected degeneration of %dth Y scale", i)
 		}
 	}
-	return nil
+	p.debugScales("After de-degenerating X and Y")
 }
 
-// Range prepares all panels and scales of f.
-func (f *Plot) Range( /* Todo */ ) error {
-	for _, s := range f.XScales {
-		s.UpdateData(unsetInterval())
-	}
-	for _, s := range f.YScales {
-		s.UpdateData(unsetInterval())
-	}
-	for _, s := range f.Scales {
-		s.UpdateData(unsetInterval())
-	}
-	f.debugScales("Start of Range")
+// Prepare learns the Data range of each scale, autoscales each scale's limit,
+// clears each scales's range and degenrated the X and Y scales.
+func (p *Plot) Prepare() {
+	p.LearnDataRange()
+	p.Autoscale()
+	p.DeDegenerateXandY()
+	p.fillRange()
 
-	// We start by finding the all the actual, sharp data ranges.
-	// Then we apply autoscaling constraints and expand the data ranges.
-	f.learnDataRange()
-	f.debugScales("After learning data ranges")
-
-	f.applyToScales((*Scale).autoscale)
-	f.debugScales("After autoscaling")
-
-	f.deDegenerateXandY()
-	f.debugScales("After de-degenerating X and Y")
-
-	f.setupColorAndSizeMaps()
-
-	return nil // TODO: fail for illegal log scales, etc.
+	p.setupColorAndSizeMaps() // TODO: this should go somewhere else
 }
 
 func (p *Plot) setupColorAndSizeMaps() {
@@ -352,9 +377,9 @@ func (p *Plot) setupColorAndSizeMaps() {
 	p.FillMap.SetMax(1)
 }
 
-func (f *Plot) needGuides() bool {
+func (p *Plot) needGuides() bool {
 	for s := AlphaScale; s < numScales; s++ {
-		if f.Scales[s].HasData() {
+		if p.Scales[s].HasData() {
 			return true
 		}
 	}
@@ -416,12 +441,12 @@ func (f *Plot) Draw(c draw.Canvas) error {
 
 	xticks := make([][]plot.Tick, f.Cols)
 	yticks := make([][]plot.Tick, f.Rows)
-	marker := plot.DefaultTicks{}
+	marker := DefaultTicks(3)
 	for c, s := range f.XScales {
-		xticks[c] = marker.Ticks(s.Min, s.Max)
+		xticks[c] = marker.Ticks(s.Limit.Min, s.Limit.Max)
 	}
 	for r, s := range f.YScales {
-		yticks[r] = marker.Ticks(s.Min, s.Max)
+		yticks[r] = marker.Ticks(s.Limit.Min, s.Limit.Max)
 	}
 
 	// Setup the panel canvases, draw their background and draw the facet
@@ -682,8 +707,9 @@ func (p *Plot) canCombineScales(j, k int) bool {
 	}
 
 	// 2. The two scales have the same range.
-	if s1.Min != s2.Min || s1.Max != s2.Max {
-		debug.VVV("different range for", j, s1.Min, s1.Max, "and", k, s2.Min, s2.Max)
+	if s1.Limit.Min != s2.Limit.Min || s1.Limit.Max != s2.Limit.Max {
+		debug.VVV("different range for", j, s1.Limit.Min, s1.Limit.Max,
+			"and", k, s2.Limit.Min, s2.Limit.Max)
 		return false
 	}
 
@@ -694,7 +720,7 @@ func (p *Plot) canCombineScales(j, k int) bool {
 
 	// 4. The scales must use the same Ticker.
 	if s1.Ticker != nil && s2.Ticker != nil && s1.Ticker != s2.Ticker {
-		t1, t2 := s1.Ticker.Ticks(s1.Min, s1.Max), s2.Ticker.Ticks(s2.Min, s2.Max)
+		t1, t2 := s1.Ticker.Ticks(s1.Limit.Min, s1.Limit.Max), s2.Ticker.Ticks(s2.Limit.Min, s2.Limit.Max)
 		if len(t1) != len(t2) {
 			return false
 		}
@@ -765,7 +791,7 @@ func (f *Plot) tickerFor(scales []int) plot.Ticker {
 
 	}
 
-	return plot.DefaultTicks{}
+	return DefaultTicks(6)
 }
 
 type DiscreteTicks struct{}
@@ -835,7 +861,7 @@ func (plot *Plot) drawDiscreteGuides(c draw.Canvas, scales []int) vg.Length {
 	showStroke := containsInt(scales, StrokeScale)
 	scale := plot.Scales[scales[0]] // all have same range (otherwise they would not have been combined), so take the first
 	ticker := plot.tickerFor(scales)
-	ticks := ticker.Ticks(scale.Min, scale.Max)
+	ticks := ticker.Ticks(scale.Limit.Min, scale.Limit.Max)
 
 	boxSize, pad := plot.Style.Legend.Discrete.Size, vg.Length(3)
 	r := vg.Rectangle{
@@ -970,8 +996,8 @@ func (p *Plot) drawContinuousColorGuide(c draw.Canvas, scale *Scale, colMap pale
 		return c.Max.Y - height + height*vg.Length(t)
 	}
 	rect := vg.Rectangle{
-		Min: vg.Point{c.Min.X, scale2Canvas(scale.Min)},
-		Max: vg.Point{c.Min.X + width, scale2Canvas(scale.Max)},
+		Min: vg.Point{c.Min.X, scale2Canvas(scale.Limit.Min)},
+		Max: vg.Point{c.Min.X + width, scale2Canvas(scale.Limit.Max)},
 	}
 	step := height / 101
 	r := rect
@@ -987,7 +1013,7 @@ func (p *Plot) drawContinuousColorGuide(c draw.Canvas, scale *Scale, colMap pale
 	c.SetColor(color.Black)
 	c.SetLineWidth(vg.Length(0.3))
 	c.Stroke(rect.Path())
-	ticks := plot.DefaultTicks{}.Ticks(scale.Min, scale.Max)
+	ticks := plot.DefaultTicks{}.Ticks(scale.Limit.Min, scale.Limit.Max)
 	for _, tick := range ticks {
 		if tick.IsMinor() {
 			continue

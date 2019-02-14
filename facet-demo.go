@@ -198,7 +198,7 @@ func main() {
 
 	img := vgimg.New(800, 600)
 	dc := draw.New(img)
-	f.Range()
+	f.Prepare()
 	f.Draw(dc)
 
 	w, err := os.Create("testdata/facet.png")

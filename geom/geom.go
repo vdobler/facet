@@ -89,7 +89,7 @@ func (p Point) Draw(panel *facet.Panel) {
 	}
 }
 
-func (p Point) AllDataRanges() facet.DataRanges {
+func (p Point) DataRange() facet.DataRanges {
 	dr := facet.NewDataRanges()
 	xmin, xmax, ymin, ymax := plotter.XYRange(p.XY)
 	dr[facet.XScale].Update(xmin)
@@ -190,7 +190,7 @@ func (r Rectangle) Draw(panel *facet.Panel) {
 	}
 }
 
-func (r Rectangle) AllDataRanges() facet.DataRanges {
+func (r Rectangle) DataRange() facet.DataRanges {
 	dr := facet.NewDataRanges()
 	xmin, xmax, ymin, ymax, umin, umax, vmin, vmax := data.XYUVRange(r.XYUV)
 	dr[facet.XScale].Update(xmin, xmax, umin, umax)
@@ -226,9 +226,9 @@ func (b Bar) Draw(p *facet.Panel) {
 	rect.Draw(p)
 }
 
-func (b Bar) AllDataRanges() facet.DataRanges {
+func (b Bar) DataRange() facet.DataRanges {
 	rect := b.rects()
-	return rect.AllDataRanges()
+	return rect.DataRange()
 }
 
 func (b Bar) rects() Rectangle {
@@ -499,7 +499,7 @@ func (p Path) Draw(panel *facet.Panel) {
 	}
 }
 
-func (p Path) AllDataRanges() facet.DataRanges {
+func (p Path) DataRange() facet.DataRanges {
 	dr := facet.NewDataRanges()
 	for i := 0; i < p.XY.Len(); i++ {
 		x, y := p.XY.XY(i)
@@ -546,9 +546,9 @@ func (l Line) Draw(panel *facet.Panel) {
 	path.Draw(panel)
 }
 
-func (l Line) AllDataRanges() facet.DataRanges {
+func (l Line) DataRange() facet.DataRanges {
 	path := Path(l) // no need to sort
-	return path.AllDataRanges()
+	return path.DataRange()
 }
 
 // ----------------------------------------------------------------------------
@@ -602,11 +602,11 @@ func (s Step) Draw(panel *facet.Panel) {
 	path.Draw(panel)
 }
 
-func (s Step) AllDataRanges() facet.DataRanges {
+func (s Step) DataRange() facet.DataRanges {
 	// all additional points lie inside the range spaned by the original data points.
 	path := Path{Alpha: s.Alpha, Color: s.Color, Size: s.Size,
 		Stroke: s.Stroke, Default: s.Default}
-	return path.AllDataRanges()
+	return path.DataRange()
 }
 
 // ----------------------------------------------------------------------------
@@ -665,7 +665,7 @@ func (s Segment) Draw(panel *facet.Panel) {
 	}
 }
 
-func (s Segment) AllDataRanges() facet.DataRanges {
+func (s Segment) DataRange() facet.DataRanges {
 	dr := facet.NewDataRanges()
 	for i := 0; i < s.XYUV.Len(); i++ {
 		x, y, u, v := s.XYUV.XYUV(i)
@@ -697,7 +697,7 @@ func (h HLine) Draw(panel *facet.Panel) {
 	N := h.Y.Len()
 	xyuv := make(data.XYUVs, N)
 	xscale := panel.Scales[facet.XScale]
-	xmin, xmax := xscale.Min, xscale.Max
+	xmin, xmax := xscale.Limit.Min, xscale.Limit.Max
 	for i := 0; i < N; i++ {
 		y := h.Y.Value(i)
 		xyuv[i].X, xyuv[i].Y, xyuv[i].U, xyuv[i].V = xmin, y, xmax, y
@@ -707,7 +707,7 @@ func (h HLine) Draw(panel *facet.Panel) {
 	segment.Draw(panel)
 }
 
-func (h HLine) AllDataRanges() facet.DataRanges {
+func (h HLine) DataRange() facet.DataRanges {
 	dr := facet.NewDataRanges()
 	for i := 0; i < h.Y.Len(); i++ {
 		dr[facet.YScale].Update(h.Y.Value(i))
@@ -735,7 +735,7 @@ func (v VLine) Draw(panel *facet.Panel) {
 	N := v.X.Len()
 	xyuv := make(data.XYUVs, N)
 	yscale := panel.Scales[facet.YScale]
-	ymin, ymax := yscale.Min, yscale.Max
+	ymin, ymax := yscale.Limit.Min, yscale.Limit.Max
 	for i := 0; i < N; i++ {
 		x := v.X.Value(i)
 		xyuv[i].X, xyuv[i].Y, xyuv[i].U, xyuv[i].V = x, ymin, x, ymax
@@ -745,7 +745,7 @@ func (v VLine) Draw(panel *facet.Panel) {
 	segment.Draw(panel)
 }
 
-func (v VLine) AllDataRanges() facet.DataRanges {
+func (v VLine) DataRange() facet.DataRanges {
 	dr := facet.NewDataRanges()
 	for i := 0; i < v.X.Len(); i++ {
 		dr[facet.XScale].Update(v.X.Value(i))
@@ -832,7 +832,7 @@ func (b Boxplot) Draw(panel *facet.Panel) {
 	point.Draw(panel)
 }
 
-func (b Boxplot) AllDataRanges() facet.DataRanges {
+func (b Boxplot) DataRange() facet.DataRanges {
 	dr := facet.NewDataRanges()
 	g := NewBarGroups(b.Position, b.GGap, b.BGap, true)
 
@@ -903,7 +903,7 @@ func (t Text) Draw(panel *facet.Panel) {
 	}
 }
 
-func (t Text) AllDataRanges() facet.DataRanges {
+func (t Text) DataRange() facet.DataRanges {
 	dr := facet.NewDataRanges()
 	for i := 0; i < t.XYText.Len(); i++ {
 		x, y, _ := t.XYText.XYText(i)

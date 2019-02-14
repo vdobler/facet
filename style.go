@@ -41,7 +41,12 @@ type Style struct {
 		Title       draw.TextStyle
 		TitleHeight vg.Length
 		Line        draw.LineStyle
-		MajorTick   struct {
+		Expand      struct {
+			Absolute  float64
+			Releative float64
+		}
+		MajorTick struct {
+			Number int
 			draw.LineStyle
 			Length vg.Length
 			Align  draw.YAlignment
@@ -58,7 +63,12 @@ type Style struct {
 		Title      draw.TextStyle
 		TitleWidth vg.Length
 		Line       draw.LineStyle
-		MajorTick  struct {
+		Expand     struct {
+			Absolute  float64
+			Releative float64
+		}
+		MajorTick struct {
+			Number int
 			draw.LineStyle
 			Length vg.Length
 			Align  draw.XAlignment
@@ -152,15 +162,18 @@ func DefaultFacetStyle(baseFontSize vg.Length) Style {
 	fs.Grid.Minor.Color = color.White
 	fs.Grid.Minor.Width = vg.Length(0.5)
 
+	// X-Axis
+	fs.XAxis.Expand.Releative = 0.05
 	fs.XAxis.Title.Color = color.Black
 	fs.XAxis.Title.Font = baseFont
 	fs.XAxis.Title.Rotation = 0
 	fs.XAxis.Title.XAlign = draw.XCenter
 	fs.XAxis.Title.YAlign = draw.YAlignment(0.3)
 	fs.XAxis.TitleHeight = scale(baseFontSize, 2)
-
 	fs.XAxis.Line.Width = 0
 
+	// X-Ticks
+	fs.XAxis.MajorTick.Number = 4
 	fs.XAxis.MajorTick.Color = color.Gray16{0x1111}
 	fs.XAxis.MajorTick.Width = vg.Length(1)
 	fs.XAxis.MajorTick.Length = vg.Length(5)
@@ -176,6 +189,8 @@ func DefaultFacetStyle(baseFontSize vg.Length) Style {
 	fs.XAxis.MajorTick.Label.XAlign = draw.XCenter
 	fs.XAxis.MajorTick.Label.YAlign = draw.YTop
 
+	// Y-Axis
+	fs.YAxis.Expand.Releative = 0.05
 	fs.YAxis.Title.Color = color.Black
 	fs.YAxis.Title.Font = baseFont
 	fs.YAxis.Title.Rotation = math.Pi / 2
@@ -185,7 +200,8 @@ func DefaultFacetStyle(baseFontSize vg.Length) Style {
 
 	fs.YAxis.Line.Width = 0
 
-	// Major Ticks and Labels
+	// Y-Ticks
+	fs.YAxis.MajorTick.Number = 3
 	fs.YAxis.MajorTick.Color = color.Gray16{0x1111}
 	fs.YAxis.MajorTick.Width = vg.Length(1)
 	fs.YAxis.MajorTick.Length = vg.Length(5)

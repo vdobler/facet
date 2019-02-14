@@ -168,7 +168,7 @@ func main() {
 		dc := draw.New(img)
 		c := dc
 		f := sample(alpha, color, fill, shape, size, stroke)
-		f.Range()
+		f.Prepare()
 		f.Draw(c)
 		if c.Max.X < 900 {
 			c.Min.X += 300

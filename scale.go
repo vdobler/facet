@@ -124,29 +124,13 @@ func NewScale() *Scale {
 	return s
 }
 
-// Map maps the intervall [s.Min, s.Max] to [0, 1].
-// Values outside of [s.Min, s.Max] are mapped to values < 0 or > 1.
+// Map maps s's Range interval to [0, 1].
+// Values outside of [s.Range.Min, s.Range.Max] are mapped to values < 0 or > 1.
 // If s's Intervall is degenerate or unset Map returns NaN.
 func (s *Scale) Map(x float64) float64 {
 	U := Interval{0, 1}
-	return s.Trans.Trans(s.Limit, U, x)
-
-	// ======  OLD CODE =======
-	if math.IsNaN(s.Limit.Min) || math.IsNaN(s.Limit.Max) || s.Limit.Min == s.Limit.Max {
-		return math.NaN()
-	}
-
-	switch s.ScaleType {
-	case Linear, Time, Discrete:
-		return (x - s.Limit.Min) / (s.Limit.Max - s.Limit.Min)
-	case Logarithmic:
-		min, max := math.Log10(s.Limit.Min), math.Log10(s.Limit.Max)
-		math.Log10(x)
-		return (x - min) / (max - min)
-	default:
-		panic(s.ScaleType)
-	}
-
+	fmt.Println("Map", x, s.Range)
+	return s.Trans.Trans(s.Range, U, x)
 }
 
 // UpdateData updates s to cover i.
@@ -174,11 +158,17 @@ func (s *Scale) HasData() bool {
 	return !math.IsNaN(s.Data.Min) && !math.IsNaN(s.Data.Max)
 }
 
-// InRange reports whether x lies in the the range of s..
-func (s *Scale) InRange(x float64) bool {
+// InLimit reports whether x lies in the Limit of s.
+func (s *Scale) InLimit(x float64) bool {
 	return x >= s.Limit.Min && x <= s.Limit.Max
 }
 
+// InRange reports whether x lies in the Range of s.
+func (s *Scale) InRange(x float64) bool {
+	return x >= s.Range.Min && x <= s.Range.Max
+}
+
+// String returns a string suitable for debugging s.
 func (s *Scale) String() string {
 	if s == nil {
 		return "<nil>"
@@ -202,8 +192,10 @@ func (s *Scale) Autoscale() {
 		// Degenerate MinRangeIntervall and non NaN:
 		// The user has set a fixed Min.
 		s.Limit.Min = s.MinRange.Min
+		debug.VVV("Manual fixed Min", s.MinRange, s.String())
 	} else {
 		s.Limit.Min = s.Data.Min
+		debug.VVV("Set Limit.Min to Data.Min", s.Data.Min)
 		s.applyExpansion(true)
 
 		// Clip autoscaling
@@ -236,9 +228,14 @@ func (s *Scale) Autoscale() {
 }
 
 func (s *Scale) applyExpansion(min bool) {
+	if s.Expand.Absolute == 0 && s.Expand.Releative == 0 {
+		return
+	}
+
 	U := Interval{0, 1}
 	if min {
 		s.Limit.Min = s.Trans.Inverse(U, s.Data, -s.Expand.Releative)
+		debug.VVV("Limit.Min", s.Limit.Min, s.Expand)
 		s.Limit.Min -= s.Expand.Absolute
 	} else {
 		s.Limit.Max = s.Trans.Inverse(U, s.Data, 1+s.Expand.Releative)

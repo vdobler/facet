@@ -59,10 +59,13 @@ func (p Point) Draw(panel *facet.Panel) {
 
 	for i := 0; i < p.XY.Len(); i++ {
 		x, y := p.XY.XY(i)
-		center, ok := panel.MapXY(x, y)
-		if !ok {
-			continue // TODO: should notify Plot/Panel about dropped data point.
+		if !panel.InRangeXY(x, y) {
+			// TODO: how to report infromation without producing
+			// a flood of identical messages?
+			// fmt.Fprintf(panel.Plot.Messages, "removed point")
+			continue
 		}
+		center := panel.MapXY(x, y)
 
 		col, ok := determineColor(baseColor, panel, i, p.Color, p.Alpha)
 		if !ok {
@@ -157,11 +160,10 @@ func (r Rectangle) Draw(panel *facet.Panel) {
 
 	for i := 0; i < r.XYUV.Len(); i++ {
 		x, y, u, v := r.XYUV.XYUV(i)
-		min, minok := panel.MapXY(x, y)
-		max, maxok := panel.MapXY(u, v)
-		if !minok && !maxok {
+		if !panel.InRangeXY(x, y) && !panel.InRangeXY(u, v) {
 			continue // both corners outside of scale range
 		}
+		min, max := panel.MapXY(x, y), panel.MapXY(u, v)
 		rect := vg.Rectangle{Min: min, Max: max}
 		rect = clipRect(rect, panel.Canvas)
 
@@ -474,8 +476,13 @@ func (p Path) Draw(panel *facet.Panel) {
 
 	canvas := panel.Canvas
 	for i := 0; i < p.XY.Len()-1; i++ {
-		left, _ := panel.MapXY(p.XY.XY(i))      // Clipping done below.
-		right, _ := panel.MapXY(p.XY.XY(i + 1)) // Clipping done below.
+		x, y := p.XY.XY(i)
+		u, v := p.XY.XY(i + 1)
+		if !panel.InRangeXY(x, y) && !panel.InRangeXY(u, v) {
+			continue // both corners outside of scale range
+		}
+		left := panel.MapXY(x, y)  // Clipping done below.
+		right := panel.MapXY(u, v) // Clipping done below.
 
 		col, ok := determineColor(baseColor, panel, i, p.Color, p.Alpha)
 		if !ok {
@@ -640,8 +647,11 @@ func (s Segment) Draw(panel *facet.Panel) {
 	canvas := panel.Canvas
 	for i := 0; i < s.XYUV.Len(); i++ {
 		x, y, u, v := s.XYUV.XYUV(i)
-		left, _ := panel.MapXY(x, y)  // Clipping done below.
-		right, _ := panel.MapXY(u, v) // Clipping done below.
+		if !panel.InRangeXY(x, y) && !panel.InRangeXY(u, v) {
+			continue // both corners outside of scale range
+		}
+		left := panel.MapXY(x, y)  // Clipping done below.
+		right := panel.MapXY(u, v) // Clipping done below.
 
 		col, ok := determineColor(baseColor, panel, i, s.Color, s.Alpha)
 		if !ok {
@@ -878,10 +888,10 @@ func (t Text) Draw(panel *facet.Panel) {
 
 	for i := 0; i < t.XYText.Len(); i++ {
 		x, y, text := t.XYText.XYText(i)
-		center, ok := panel.MapXY(x, y)
-		if !ok {
+		if !panel.InRangeXY(x, y) {
 			continue // TODO: should notify Plot/Panel about dropped data point.
 		}
+		center := panel.MapXY(x, y)
 
 		col, ok := determineColor(baseColor, panel, i, t.Color, t.Alpha)
 		if !ok {

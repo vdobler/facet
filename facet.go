@@ -3,6 +3,8 @@ package facet
 import (
 	"fmt"
 	"image/color"
+	"io"
+	"io/ioutil"
 	"log"
 	"math"
 	"os"
@@ -83,45 +85,6 @@ type Geom interface {
 }
 
 // ----------------------------------------------------------------------------
-// Panel
-
-// A Panel represents one panel in a faceted plot.
-type Panel struct {
-	Title  string
-	Plot   *Plot
-	Geoms  []Geom
-	Canvas draw.Canvas
-	Scales [numScales]*Scale
-}
-
-// MapXY maps the data coordinate (x,y) to a canvas point.
-// It also reports whether (x,y) lies inside the range of the X and Y scales.
-func (p *Panel) MapXY(x, y float64) (vg.Point, bool) {
-	size := p.Canvas.Size()
-	xs, ys := p.Scales[XScale], p.Scales[YScale]
-	xu, yu := xs.Map(x), ys.Map(y)
-	return vg.Point{
-		X: p.Canvas.Min.X + vg.Length(xu)*size.X,
-		Y: p.Canvas.Min.Y + vg.Length(yu)*size.Y,
-	}, xs.InRange(x) && ys.InRange(y)
-}
-
-// MapSize maps a data value v to a display size by calling p.Plot.MapSize.
-func (p *Panel) MapSize(v float64) vg.Length {
-	return p.Plot.MapSize(v)
-}
-
-// MapColor maps a data value v to a color by calling p.Plot.MapColor(v,false).
-func (p *Panel) MapColor(v float64) color.Color {
-	return p.Plot.MapColor(v, false)
-}
-
-// MapFill maps a data value v to a color by calling p.Plot.MapColor(v,true).
-func (p *Panel) MapFill(v float64) color.Color {
-	return p.Plot.MapColor(v, true)
-}
-
-// ----------------------------------------------------------------------------
 // Plot
 
 // Plot describes a facetted plot.
@@ -157,6 +120,10 @@ type Plot struct {
 
 	// Style used during plotting. TODO: Keep here?
 	Style Style
+
+	// Messages is used to report warnings and errors during creation
+	// of the plot.
+	Messages io.Writer
 }
 
 // NewSimple creates a new un-faceted plot, that is a plot with just one panel.
@@ -178,6 +145,7 @@ func NewPlot(rows, cols int, freeX, freeY bool) *Plot {
 		XScales:   make([]*Scale, cols),
 		YScales:   make([]*Scale, rows),
 		Style:     DefaultFacetStyle(12),
+		Messages:  ioutil.Discard,
 	}
 
 	for r := 0; r < plot.Rows; r++ {
@@ -388,6 +356,7 @@ func (p *Plot) needGuides() bool {
 
 // Draw renders f to c.
 func (f *Plot) Draw(c draw.Canvas) error {
+	debug.V("Drawing to canvas from ", c.Min.X, ",", c.Min.Y, " to ", c.Max.X, ",", c.Max.Y)
 	if f.Title != "" {
 		c.FillText(f.Style.Title, vg.Point{X: c.Center().X, Y: c.Max.Y}, f.Title)
 		c.Max.Y -= f.Style.TitleHeight
@@ -413,7 +382,7 @@ func (f *Plot) Draw(c draw.Canvas) error {
 	if f.YScales[0].Title != "" {
 		w1 = f.Style.YAxis.TitleWidth
 	}
-	w2 = 20
+	w2 = 30 // TODO: Dynamic
 	for _, rl := range f.RowLabels {
 		if rl != "" {
 			w4 = f.Style.VStrip.Width
@@ -441,12 +410,11 @@ func (f *Plot) Draw(c draw.Canvas) error {
 
 	xticks := make([][]plot.Tick, f.Cols)
 	yticks := make([][]plot.Tick, f.Rows)
-	marker := DefaultTicks(3)
 	for c, s := range f.XScales {
-		xticks[c] = marker.Ticks(s.Limit.Min, s.Limit.Max)
+		xticks[c] = s.Trans.Ticker.Ticks(s.Limit.Min, s.Limit.Max)
 	}
 	for r, s := range f.YScales {
-		yticks[r] = marker.Ticks(s.Limit.Min, s.Limit.Max)
+		yticks[r] = s.Trans.Ticker.Ticks(s.Limit.Min, s.Limit.Max)
 	}
 
 	// Setup the panel canvases, draw their background and draw the facet
@@ -460,7 +428,7 @@ func (f *Plot) Draw(c draw.Canvas) error {
 	// Point (x0,y0) is the top-left corner of each panel
 	y0 := c.Max.Y - h4
 	for row, panels := range f.Panels {
-		x0 := w1 + w2
+		x0 := c.Min.X + w1 + w2
 
 		for col, panel := range panels {
 			if panel == nil {
@@ -507,7 +475,7 @@ func (f *Plot) Draw(c draw.Canvas) error {
 	for c, xtick := range xticks {
 		for _, tick := range xtick {
 			panel := f.Panels[f.Rows-1][c]
-			r, _ := panel.MapXY(tick.Value, 0)
+			r := panel.MapXY(tick.Value, 0)
 			sty := f.Style.XAxis.MajorTick.LineStyle
 			length := f.Style.XAxis.MajorTick.Length
 			align := vg.Length(f.Style.XAxis.MajorTick.Align)
@@ -529,7 +497,7 @@ func (f *Plot) Draw(c draw.Canvas) error {
 	for r, ytick := range yticks {
 		for _, tick := range ytick {
 			panel := f.Panels[r][0]
-			r, _ := panel.MapXY(0, tick.Value)
+			r := panel.MapXY(0, tick.Value)
 			sty := f.Style.YAxis.MajorTick.LineStyle
 			length := f.Style.YAxis.MajorTick.Length
 			align := vg.Length(f.Style.YAxis.MajorTick.Align)
@@ -568,6 +536,7 @@ func (p *Plot) setupPanel(panel *Panel, row, col int, canvas draw.Canvas,
 	havePanelTitle bool,
 	x0, y0, width, height vg.Length,
 	xticks, yticks []plot.Tick) {
+	debug.V("setupPanel", row, ",", col, " at ", x0, ",", y0, " size ", width, "x", height)
 
 	panel.Canvas.Canvas = canvas.Canvas
 	panel.Canvas.Min.X = x0
@@ -588,7 +557,7 @@ func (p *Plot) setupPanel(panel *Panel, row, col int, canvas draw.Canvas,
 	panel.Canvas.Fill(panel.Canvas.Rectangle.Path())
 	if p.Style.Grid.Major.Color != nil {
 		for _, xtic := range xticks {
-			r, _ := panel.MapXY(xtic.Value, 0)
+			r := panel.MapXY(xtic.Value, 0)
 			sty := p.Style.Grid.Major
 			if xtic.IsMinor() {
 				sty = p.Style.Grid.Minor
@@ -597,7 +566,7 @@ func (p *Plot) setupPanel(panel *Panel, row, col int, canvas draw.Canvas,
 				r.X, y0, r.X, y0-height)
 		}
 		for _, ytic := range yticks {
-			r, _ := panel.MapXY(0, ytic.Value)
+			r := panel.MapXY(0, ytic.Value)
 			sty := p.Style.Grid.Major
 			if ytic.IsMinor() {
 				sty = p.Style.Grid.Minor
@@ -621,12 +590,15 @@ func (p *Plot) drawStrip(c draw.Canvas, text string, min, max vg.Point, style dr
 // MapSize maps the data value s to a display length via f's size scale.
 // Values outside of of the range of the size scale are mapped to 0.
 func (p *Plot) MapSize(v float64) vg.Length {
-	max := 0.5 * p.Style.Legend.Discrete.Size
-	t := p.Scales[SizeScale].Map(v)
+	min := 2.0
+	max := float64(0.5 * p.Style.Legend.Discrete.Size)
+	s := p.Scales[SizeScale]
+	t := s.Trans.Trans(s.Range, Interval{min, max}, v)
+
 	if !p.Scales[SizeScale].InRange(v) || math.IsNaN(t) {
 		return 0
 	}
-	return max * vg.Length(t)
+	return vg.Length(t)
 }
 
 // MapColor maps the data value v to a color via p's ColorMap or

@@ -13,16 +13,22 @@ var transformationTests = []struct {
 	x, want float64
 }{
 	{IdentityTrans, 10, 20, 0, 1, 7, 7},
+
 	{LinearTrans, 10, 20, 10, 20, 12, 12},
 	{LinearTrans, 10, 20, 100, 200, 12, 120},
 	{LinearTrans, 3, 5, 0, 1, 3, 0},
 	{LinearTrans, 3, 5, 0, 1, 4, 0.5},
 	{LinearTrans, 3, 5, 0, 1, 5, 1},
+
 	{SqrtTrans, -10, 30, 2, 20, -10, 2.0},
 	{SqrtTrans, -10, 30, 2, 20, 0, 10.15},
 	{SqrtTrans, -10, 30, 2, 20, 10, 14.21},
 	{SqrtTrans, -10, 30, 2, 20, 20, 17.35},
 	{SqrtTrans, -10, 30, 2, 20, 30, 20.00},
+
+	{SqrtTransFix0, 10, 20, 3, 4, 0, 0},
+	{SqrtTransFix0, 10, 20, 3, 4, 10, 2 * math.Sqrt2},
+	{SqrtTransFix0, 10, 20, 3, 4, 20, 4},
 }
 
 func equal64(a, b float64) bool {

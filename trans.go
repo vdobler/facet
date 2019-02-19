@@ -39,7 +39,7 @@ var LinearTrans = Transformation{
 }
 
 // SqrtTrans implements a square root transformation suitable to map
-// the Size aesthetic to the area of a point.
+// the Size aesthetic to the size of a point. (Ggplots scale_size)
 var SqrtTrans = Transformation{
 	Name: "SquareRoot",
 	Trans: func(from, to Interval, x float64) float64 {
@@ -47,6 +47,24 @@ var SqrtTrans = Transformation{
 		return math.Sqrt(LinearTrans.Trans(from, area, x))
 	},
 	Inverse: func(from, to Interval, y float64) float64 {
+		area := Interval{from.Min * from.Min, from.Max * from.Max}
+		return LinearTrans.Trans(area, to, y*y)
+	},
+	Ticker: DefaultTicks(5),
+}
+
+// SqrtTransFix0 implements a square root transformation suitable to map
+// the Size aesthetic to the area of a point. It maps 0 to 0.
+// (Ggplot's scale_size_are)
+var SqrtTransFix0 = Transformation{
+	Name: "SquareRoot",
+	Trans: func(from, to Interval, x float64) float64 {
+		from.Min, to.Min = 0, 0
+		area := Interval{to.Min * to.Min, to.Max * to.Max}
+		return math.Sqrt(LinearTrans.Trans(from, area, x))
+	},
+	Inverse: func(from, to Interval, y float64) float64 {
+		from.Min, to.Min = 0, 0
 		area := Interval{from.Min * from.Min, from.Max * from.Max}
 		return LinearTrans.Trans(area, to, y*y)
 	},

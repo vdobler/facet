@@ -77,11 +77,52 @@ var scaleName = []string{
 
 // A Geom is the geometrical representation of some data.
 type Geom interface {
-	// DataRange returns what ranges on which scales this Geom coveres.
+	// DataRange returns what ranges on which scales are covered by
+	// covered by the geoms indexed by subset
 	DataRange() DataRanges
 
-	// Draw is called to draw this Geom onto p.
+	// Draw is called to draw the geoms indexed by subset onto p.
 	Draw(p *Panel)
+}
+
+// A FGeom is the geometrical representation of some faceted data.
+type FGeom interface {
+	// N returns the number of geoms in this data set.
+	N() int
+
+	// Group of the i'th geom in this data set.
+	Group(i int) GroupID
+
+	// DataRange returns what ranges on which scales are covered by
+	// covered by the geoms indexed by subset
+	DataRange(subset []int) DataRanges
+
+	// Draw is called to draw the geoms indexed by subset onto p.
+	Draw(p *Panel, subset []int)
+}
+
+// ----------------------------------------------------------------------------
+// FacetPlot
+
+type Layer struct {
+}
+
+// FacetPlot describes a automatically facetted plot.
+type FacetPlot struct {
+	// Title is the optional plot title.
+	Title string
+
+	Geoms []FGeom
+
+	// Rows and Cols are number of rows and columns in the faceted plot.
+	Rows, Cols int
+}
+
+func GeneratePlot(fp FacetPlot) *Plot {
+	for _, g := range fp.Geoms {
+		g.N()
+	}
+	return nil // TODO
 }
 
 // ----------------------------------------------------------------------------

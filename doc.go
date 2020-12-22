@@ -29,5 +29,9 @@
 //   5. Fill and Color can be combined if they use the same ColorMap or one is empty.
 //
 //
-// The guides
+// Faceted Plots and Grouping
+//
+// There are one dimensional groupings and two-dimensional groupings
+// corresponding to facet_row, facet_column and facet_grid. Grouping
+// is done on discrete values (which may be an intervall).
 package facet
